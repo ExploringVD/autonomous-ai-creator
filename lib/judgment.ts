@@ -1,8 +1,8 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import Groq from 'groq-sdk';
 import { z } from 'zod';
 import type { DiscoveredTopic } from '@/lib/discovery';
 
-const MODEL = 'gemini-2.0-flash';
+const MODEL = 'llama-3.3-70b-versatile';
 
 /**
  * Transcribed from docs/judgment-prompt.md. Kept as a constant rather than read
@@ -148,30 +148,37 @@ export async function judgeTopic(
 ): Promise<TopicJudgment[]> {
   if (candidates.length === 0) return [];
 
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) {
-    console.error('judgeTopic: GEMINI_API_KEY is not set');
+    console.error('judgeTopic: GROQ_API_KEY is not set');
     return [];
   }
 
   let text: string;
   try {
-    const client = new GoogleGenerativeAI(apiKey);
-    const model = client.getGenerativeModel({
+    const groq = new Groq({ apiKey });
+
+    const completion = await groq.chat.completions.create({
       model: MODEL,
-      generationConfig: {
-        temperature: 0.2,
-        responseMimeType: 'application/json',
-      },
+      temperature: 0.2,
+      // JSON mode guarantees syntactically valid JSON, but constrains the
+      // top level to an object — hence the { "judgments": [...] } envelope
+      // that unwrapJudgments strips back off.
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: buildPrompt(candidates, recentTopics) },
+        {
+          role: 'user',
+          content:
+            'Judge every candidate topic listed above. Respond with a JSON object of the form {"judgments": [ ... ]} whose array holds one object per candidate, in the same order as given.',
+        },
+      ],
     });
 
-    const result = await model.generateContent(
-      buildPrompt(candidates, recentTopics)
-    );
-    text = result.response.text();
+    text = completion.choices[0]?.message?.content ?? '';
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    console.error('judgeTopic: Gemini request failed:', message);
+    console.error('judgeTopic: Groq request failed:', message);
     return [];
   }
 
@@ -179,16 +186,32 @@ export async function judgeTopic(
 }
 
 /**
+ * Accept either a bare array or the { "judgments": [...] } envelope that JSON
+ * mode requires. Any single array-valued property is unwrapped, so a model that
+ * picks "results" or "topics" as the key still parses.
+ */
+function unwrapJudgments(parsed: unknown): unknown {
+  if (Array.isArray(parsed)) return parsed;
+  if (parsed && typeof parsed === 'object') {
+    const arrays = Object.values(parsed as Record<string, unknown>).filter(
+      Array.isArray
+    );
+    if (arrays.length === 1) return arrays[0];
+  }
+  return parsed;
+}
+
+/**
  * Parse and validate a raw model response into judgments.
  *
  * Split out from the API call so the defensive behaviour is testable without a
- * live Gemini request. Never throws: unparseable or non-array output yields [],
- * and individual malformed entries are logged and skipped.
+ * live request. Never throws: unparseable or non-array output yields [], and
+ * individual malformed entries are logged and skipped.
  */
 export function parseJudgments(raw: string): TopicJudgment[] {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(stripFences(raw));
+    parsed = unwrapJudgments(JSON.parse(stripFences(raw)));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error('judgeTopic: could not parse model output as JSON:', message);
