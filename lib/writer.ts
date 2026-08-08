@@ -268,11 +268,12 @@ export function findFabricatedSpecifics(
 }
 
 /**
- * Cheap classifier for the grounding pass. This is a judgement task over two
- * short texts, so the 120B writer model would be wasted tokens against a tight
- * per-minute budget.
+ * Classifier for the grounding pass. The 8B model was unreliable in both
+ * directions here — it waved through invented entities (IAM, SLA) while
+ * rejecting recommendations derived from stated facts. The 70B model is the
+ * same one lib/judgment.ts uses successfully for its classification task.
  */
-const GROUNDING_MODEL = 'llama-3.1-8b-instant';
+const GROUNDING_MODEL = 'llama-3.3-70b-versatile';
 
 const GROUNDING_PROMPT = `You are a fact-grounding checker. You are given a SOURCE and a DRAFT post written from it.
 
