@@ -2,7 +2,12 @@ import { NextResponse } from 'next/server';
 import { v4 as uuidv4 } from 'uuid';
 import { getAllAgents, insertPost } from '@/lib/db';
 import { discoverTopics, type DiscoveredTopic } from '@/lib/discovery';
-import { judgeAndLogTopicsForAgent } from '@/lib/pipeline';
+import {
+  judgeTopicsForAgent,
+  logJudgmentRejections,
+  logNotPublished,
+  logPublished,
+} from '@/lib/pipeline';
 import { writePost } from '@/lib/writer';
 
 export const runtime = 'nodejs';
@@ -11,8 +16,8 @@ export const maxDuration = 300;
 
 /**
  * Publishing budget per agent per cycle. Judgment may approve more than this;
- * the surplus is still recorded in topic_log, so it counts against novelty next
- * cycle rather than queueing up for a burst.
+ * the surplus is logged as not-published so it stays eligible next cycle rather
+ * than queueing up for a burst.
  */
 const MAX_POSTS_PER_CYCLE = 2;
 
@@ -26,6 +31,7 @@ type AgentSummary = {
   attempted: number;
   published: number;
   failed: number;
+  skippedByCap: number;
   errors: string[];
 };
 
@@ -61,6 +67,7 @@ export async function POST(request: Request) {
         attempted: 0,
         published: 0,
         failed: 0,
+        skippedByCap: 0,
         errors: [],
       };
 
@@ -69,8 +76,11 @@ export async function POST(request: Request) {
         const candidates = await discoverTopics(agent.domain);
         summary.candidatesDiscovered = candidates.length;
 
-        const judgments = await judgeAndLogTopicsForAgent(agent.id, candidates);
+        const judgments = await judgeTopicsForAgent(agent.id, candidates);
         summary.topicsJudged = judgments.length;
+
+        // Judgment's own rejections are final, so log them straight away.
+        await logJudgmentRejections(agent.id, judgments);
 
         const approved = judgments.filter((j) => j.decision === 'published');
         summary.approved = approved.length;
@@ -88,11 +98,17 @@ export async function POST(request: Request) {
             summary.errors.push(
               `no candidate matched judged topic: ${judgment.topic}`
             );
+            await logNotPublished(
+              agent.id,
+              judgment.topic,
+              'approved by judgment but not published this cycle: no matching candidate found'
+            );
             continue;
           }
 
           // writePost throws on ungrounded output by design — a failure here
           // must not cost the agent its remaining budget or the other agents.
+          // Nothing is logged as published until insertPost has returned.
           try {
             const written = await writePost(topic, judgment.reason);
             await insertPost({
@@ -103,12 +119,29 @@ export async function POST(request: Request) {
               sources: written.sources,
             });
             summary.published += 1;
+            await logPublished(agent.id, judgment.topic, judgment.reason);
           } catch (error) {
+            const message =
+              error instanceof Error ? error.message : String(error);
             summary.failed += 1;
-            summary.errors.push(
-              error instanceof Error ? error.message : String(error)
+            summary.errors.push(message);
+            await logNotPublished(
+              agent.id,
+              judgment.topic,
+              `approved by judgment but write failed: ${message}`
             );
           }
+        }
+
+        // Anything approved beyond the per-cycle budget stays eligible for a
+        // later cycle, so it must not be recorded as covered.
+        for (const judgment of approved.slice(MAX_POSTS_PER_CYCLE)) {
+          summary.skippedByCap += 1;
+          await logNotPublished(
+            agent.id,
+            judgment.topic,
+            'approved by judgment but not published this cycle: pacing cap'
+          );
         }
       } catch (error) {
         summary.errors.push(
@@ -124,6 +157,7 @@ export async function POST(request: Request) {
       topicsJudged: summaries.reduce((n, s) => n + s.topicsJudged, 0),
       postsPublished: summaries.reduce((n, s) => n + s.published, 0),
       postsFailed: summaries.reduce((n, s) => n + s.failed, 0),
+      skippedByCap: summaries.reduce((n, s) => n + s.skippedByCap, 0),
       agents: summaries,
     });
   } catch (error) {

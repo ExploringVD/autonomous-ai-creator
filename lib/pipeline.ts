@@ -28,23 +28,58 @@ export async function judgeTopicsForAgent(
 }
 
 /**
- * Judge candidates and record every decision in topic_log, so the next cycle's
- * novelty check can see what this one covered.
+ * Record the topics judgment turned down, preserving its own reasoning.
+ *
+ * Approved topics are deliberately NOT logged here. A topic only counts as
+ * published once a post actually exists for it — see logPublished /
+ * logNotPublished, which the caller invokes after attempting the write.
  */
-export async function judgeAndLogTopicsForAgent(
+export async function logJudgmentRejections(
   agentId: string,
-  candidates: DiscoveredTopic[]
-): Promise<TopicJudgment[]> {
-  const judgments = await judgeTopicsForAgent(agentId, candidates);
-
+  judgments: TopicJudgment[]
+): Promise<void> {
   for (const judgment of judgments) {
+    if (judgment.decision !== 'rejected') continue;
     await logTopicDecision({
       agent_id: agentId,
       topic: judgment.topic,
-      decision: judgment.decision,
+      decision: 'rejected',
       reason: judgment.reason,
     });
   }
+}
 
-  return judgments;
+/** Record a topic that was approved AND successfully written to posts. */
+export async function logPublished(
+  agentId: string,
+  topic: string,
+  reason: string
+): Promise<void> {
+  await logTopicDecision({
+    agent_id: agentId,
+    topic,
+    decision: 'published',
+    reason,
+  });
+}
+
+/**
+ * Record a topic judgment approved but that never became a post — hit the
+ * pacing cap, or failed at the write step.
+ *
+ * Logged as 'rejected' so the novelty check does not treat it as covered: no
+ * reader ever saw it, so it must stay eligible for a later cycle. The reason
+ * carries the real cause, keeping the audit trail honest.
+ */
+export async function logNotPublished(
+  agentId: string,
+  topic: string,
+  reason: string
+): Promise<void> {
+  await logTopicDecision({
+    agent_id: agentId,
+    topic,
+    decision: 'rejected',
+    reason,
+  });
 }
