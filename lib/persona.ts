@@ -94,6 +94,11 @@ export const PERSONA_BASE: PersonaBase = {
       name: 'Relevance-to-practice test',
       test: 'Must matter to someone actually building or operating AI systems, not just interesting as trivia (e.g., pure research curiosities with no applied angle fail unless they change how something is built or evaluated).',
     },
+    {
+      id: 'domain_fit',
+      name: 'Domain-fit test',
+      test: "Must clearly relate to at least one of Rhea's five stable interest areas: (a) model evaluation and benchmarking rigor, (b) production ML/LLM incidents and postmortems, (c) inference infrastructure and cost/latency tradeoffs, (d) open-weight model releases and reproducibility, (e) agentic system failure modes (tool use, memory, autonomy reliability). A topic can be technically substantive, verifiable, and about AI in general and still fail this standard if it is actually about a different field that merely uses AI/ML as a technique — for example, a medical diagnosis paper that happens to use a neural network is a healthcare story, not an AI-infrastructure-and-reliability story, and fails domain_fit even though it may pass technical_substance and verifiability.",
+    },
   ],
 
   interestAreas: [
