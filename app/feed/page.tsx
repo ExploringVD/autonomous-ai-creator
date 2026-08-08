@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
   Check,
+  ChevronDown,
   ChevronRight,
   ExternalLink,
   Loader2,
@@ -129,6 +130,15 @@ export default function FeedPage() {
   const [openRationale, setOpenRationale] = useState<string | null>(null);
   const [entered, setEntered] = useState(false);
   const [apiTest, setApiTest] = useState<ApiTest | null>(null);
+  // Collapse state is mobile-only. Rather than branch on a JS media query —
+  // which flashes the wrong layout before hydration — the collapsible bodies
+  // carry lg:block, so desktop ignores this entirely.
+  const [openPanels, setOpenPanels] = useState({
+    judgment: false,
+    tester: false,
+  });
+  const [shownCards, setShownCards] = useState<Set<string>>(new Set());
+  const feedListRef = useRef<HTMLUListElement>(null);
 
   // Read from window rather than useSearchParams: this page is client-only, and
   // useSearchParams would force a Suspense boundary (and a second file).
@@ -195,6 +205,60 @@ export default function FeedPage() {
     const now = new Date();
     return posts.filter((post) => inRange(post.createdAt, range, now));
   }, [posts, range]);
+
+  /**
+   * Pop each card in as it reaches the viewport, rather than on a fixed
+   * load-time delay — a delay only ever fires for the cards that happen to be
+   * near the top, so anything further down appeared with no entrance at all.
+   *
+   * Cards are unobserved once shown: the entrance plays once per card, and
+   * scrolling back up does not replay it.
+   */
+  useEffect(() => {
+    const root = feedListRef.current;
+    if (!root) return;
+
+    const cards = Array.from(
+      root.querySelectorAll<HTMLElement>('[data-post-id]')
+    );
+
+    // Without IntersectionObserver nothing would ever mark a card shown, and
+    // the whole feed would sit at opacity-0. Reveal everything instead.
+    if (typeof IntersectionObserver === 'undefined') {
+      setShownCards(
+        new Set(cards.map((c) => c.dataset.postId).filter(Boolean) as string[])
+      );
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const arrived = entries
+          .filter((entry) => entry.isIntersecting)
+          .map((entry) => {
+            observer.unobserve(entry.target);
+            return (entry.target as HTMLElement).dataset.postId;
+          })
+          .filter(Boolean) as string[];
+
+        if (arrived.length === 0) return;
+        // Built by copy rather than by spreading the Set: tsconfig sets no
+        // "target", so it defaults to ES5 and spreading a Set would need
+        // downlevelIteration.
+        setShownCards((prev) => {
+          const next = new Set(Array.from(prev));
+          arrived.forEach((postId) => next.add(postId));
+          return next;
+        });
+      },
+      // A little inset at the bottom so a card starts its entrance just after
+      // its top edge is genuinely on screen, not while it is still a sliver.
+      { threshold: 0.08, rootMargin: '0px 0px -8% 0px' }
+    );
+
+    cards.forEach((card) => observer.observe(card));
+    return () => observer.disconnect();
+  }, [visiblePosts]);
 
   // Two quotes, not three: the sidebar has to fit a laptop viewport without
   // scrolling on its own.
@@ -393,9 +457,29 @@ export default function FeedPage() {
               className="mt-5 rounded-lg border border-neutral-800 bg-neutral-900/80 p-3.5 transition-opacity duration-700"
               style={{ opacity: entered ? 1 : 0 }}
             >
-              <h2 className="font-mono text-[10px] uppercase tracking-wider text-neutral-500">
-                Editorial judgment
-              </h2>
+              <button
+                type="button"
+                onClick={() =>
+                  setOpenPanels((prev) => ({
+                    ...prev,
+                    judgment: !prev.judgment,
+                  }))
+                }
+                aria-expanded={openPanels.judgment}
+                // Only a control on mobile; on lg the body is always open, so
+                // the chevron hides and this stops being interactive.
+                className="flex w-full items-center justify-between text-left lg:pointer-events-none"
+              >
+                <h2 className="font-mono text-[10px] uppercase tracking-wider text-neutral-500">
+                  Editorial judgment
+                </h2>
+                <ChevronDown
+                  aria-hidden
+                  className={`h-3.5 w-3.5 text-neutral-500 transition-transform duration-300 lg:hidden ${
+                    openPanels.judgment ? 'rotate-180' : ''
+                  }`}
+                />
+              </button>
 
               <div className="mt-2.5 flex items-baseline gap-3">
                 <span className="text-[13px] text-neutral-400">
@@ -418,28 +502,30 @@ export default function FeedPage() {
                 </span>
               </div>
 
-              <p className="mt-2 text-[11px] leading-4 text-neutral-500">
-                Most candidates fail verifiability or novelty. A high rejection
-                rate is the standard holding — not low output.
-              </p>
+              <div className={`${openPanels.judgment ? '' : 'hidden'} lg:block`}>
+                <p className="mt-2 text-[11px] leading-4 text-neutral-500">
+                  Most candidates fail verifiability or novelty. A high
+                  rejection rate is the standard holding — not low output.
+                </p>
 
-              {rejectionQuotes.length > 0 ? (
-                <ul className="mt-3 space-y-2.5 border-t border-neutral-800 pt-3">
-                  {rejectionQuotes.map((rejection, i) => (
-                    <li
-                      key={`${rejection.topic}-${i}`}
-                      className="border-l-2 border-rose-900/60 pl-2.5"
-                    >
-                      <p className="line-clamp-2 text-[11px] leading-4 text-neutral-400">
-                        {rejection.topic}
-                      </p>
-                      <p className="mt-1 line-clamp-3 text-[11px] italic leading-4 text-rose-300/50">
-                        “{rejection.reason}”
-                      </p>
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
+                {rejectionQuotes.length > 0 ? (
+                  <ul className="mt-3 space-y-2.5 border-t border-neutral-800 pt-3">
+                    {rejectionQuotes.map((rejection, i) => (
+                      <li
+                        key={`${rejection.topic}-${i}`}
+                        className="border-l-2 border-rose-900/60 pl-2.5"
+                      >
+                        <p className="line-clamp-2 text-[11px] leading-4 text-neutral-400">
+                          {rejection.topic}
+                        </p>
+                        <p className="mt-1 line-clamp-3 text-[11px] italic leading-4 text-rose-300/50">
+                          “{rejection.reason}”
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
             </section>
           ) : null}
 
@@ -471,94 +557,116 @@ export default function FeedPage() {
               deployment once this page is deployed. No stubbed responses. */}
           {agentId ? (
             <section className="mb-3.5 rounded-lg border border-[#3d464d] bg-neutral-900/80 p-4">
-              <h2 className="font-mono text-[10px] uppercase tracking-wider text-neutral-500">
-                Live API tester
-              </h2>
+              <button
+                type="button"
+                onClick={() =>
+                  setOpenPanels((prev) => ({ ...prev, tester: !prev.tester }))
+                }
+                aria-expanded={openPanels.tester}
+                className="flex w-full items-center justify-between text-left lg:pointer-events-none"
+              >
+                <h2 className="font-mono text-[10px] uppercase tracking-wider text-neutral-500">
+                  Live API tester
+                </h2>
+                <span className="flex items-center gap-2 lg:hidden">
+                  <span className="font-mono text-[10px] text-neutral-600">
+                    2 endpoints
+                  </span>
+                  <ChevronDown
+                    aria-hidden
+                    className={`h-3.5 w-3.5 text-neutral-500 transition-transform duration-300 ${
+                      openPanels.tester ? 'rotate-180' : ''
+                    }`}
+                  />
+                </span>
+              </button>
 
-              <div className="mt-2.5 flex flex-wrap gap-2">
-                {(
-                  [
-                    { key: 'init', label: 'Test POST /api/agent/init' },
-                    { key: 'feed', label: 'Test GET /api/agent/feed' },
-                  ] as { key: ApiTestKey; label: string }[]
-                ).map((btn) => {
-                  const pending =
-                    apiTest?.key === btn.key && apiTest.state === 'loading';
+              <div className={`${openPanels.tester ? '' : 'hidden'} lg:block`}>
+                <div className="mt-2.5 flex flex-wrap gap-2">
+                  {(
+                    [
+                      { key: 'init', label: 'Test POST /api/agent/init' },
+                      { key: 'feed', label: 'Test GET /api/agent/feed' },
+                    ] as { key: ApiTestKey; label: string }[]
+                  ).map((btn) => {
+                    const pending =
+                      apiTest?.key === btn.key && apiTest.state === 'loading';
 
-                  return (
-                    <button
-                      key={btn.key}
-                      type="button"
-                      onClick={() => runApiTest(btn.key)}
-                      disabled={apiTest?.state === 'loading'}
-                      className="inline-flex items-center gap-1.5 rounded-md border border-cyan-800/70 bg-cyan-950/30 px-3 py-1.5 font-mono text-[11px] text-cyan-400 transition-colors hover:border-cyan-600 hover:bg-cyan-950/60 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {pending ? (
-                        <Loader2
-                          aria-hidden
-                          className="h-3 w-3 animate-spin"
-                        />
-                      ) : (
-                        <Play aria-hidden className="h-3 w-3" />
-                      )}
-                      {btn.label}
-                    </button>
-                  );
-                })}
-              </div>
-
-              <p className="mt-2 text-[10px] leading-4 text-amber-500/70">
-                Requests hit the live endpoints — nothing here is stubbed. init
-                inserts a new agent row on every call, and the publishing cron
-                runs a cycle for every agent it finds.
-              </p>
-
-              {apiTest ? (
-                <div className="mt-3 border-t border-neutral-800 pt-3">
-                  <p className="font-mono text-[10px] uppercase tracking-wider text-neutral-500">
-                    Request
-                  </p>
-                  <pre className="mt-1.5 overflow-x-auto rounded-md border border-neutral-800 bg-neutral-950/70 p-2.5 font-mono text-[10px] leading-4 text-neutral-400">
-                    {curlFor(apiTest.key)}
-                  </pre>
-
-                  <div className="mt-3 flex items-center gap-2">
-                    <p className="font-mono text-[10px] uppercase tracking-wider text-neutral-500">
-                      Response
-                    </p>
-                    {apiTest.state === 'done' ? (
-                      <span
-                        className={`rounded-full px-1.5 py-0.5 font-mono text-[9px] ${
-                          apiTest.status && apiTest.status < 400
-                            ? 'bg-cyan-950/60 text-cyan-400'
-                            : 'bg-rose-950/50 text-rose-300'
-                        }`}
+                    return (
+                      <button
+                        key={btn.key}
+                        type="button"
+                        onClick={() => runApiTest(btn.key)}
+                        disabled={apiTest?.state === 'loading'}
+                        className="inline-flex items-center gap-1.5 rounded-md border border-cyan-800/70 bg-cyan-950/30 px-3 py-1.5 font-mono text-[11px] text-cyan-400 transition-colors hover:border-cyan-600 hover:bg-cyan-950/60 disabled:cursor-not-allowed disabled:opacity-50"
                       >
-                        {apiTest.status}
-                      </span>
+                        {pending ? (
+                          <Loader2
+                            aria-hidden
+                            className="h-3 w-3 animate-spin"
+                          />
+                        ) : (
+                          <Play aria-hidden className="h-3 w-3" />
+                        )}
+                        {btn.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <p className="mt-2 text-[10px] leading-4 text-amber-500/70">
+                  Requests hit the live endpoints — nothing here is stubbed. init
+                  inserts a new agent row on every call, and the publishing cron
+                  runs a cycle for every agent it finds.
+                </p>
+
+                {apiTest ? (
+                  <div className="mt-3 border-t border-neutral-800 pt-3">
+                    <p className="font-mono text-[10px] uppercase tracking-wider text-neutral-500">
+                      Request
+                    </p>
+                    <pre className="mt-1.5 overflow-x-auto rounded-md border border-neutral-800 bg-neutral-950/70 p-2.5 font-mono text-[10px] leading-4 text-neutral-400">
+                      {curlFor(apiTest.key)}
+                    </pre>
+
+                    <div className="mt-3 flex items-center gap-2">
+                      <p className="font-mono text-[10px] uppercase tracking-wider text-neutral-500">
+                        Response
+                      </p>
+                      {apiTest.state === 'done' ? (
+                        <span
+                          className={`rounded-full px-1.5 py-0.5 font-mono text-[9px] ${
+                            apiTest.status && apiTest.status < 400
+                              ? 'bg-cyan-950/60 text-cyan-400'
+                              : 'bg-rose-950/50 text-rose-300'
+                          }`}
+                        >
+                          {apiTest.status}
+                        </span>
+                      ) : null}
+                    </div>
+
+                    {apiTest.state === 'loading' ? (
+                      <p className="mt-1.5 flex items-center gap-2 font-mono text-[11px] text-neutral-500">
+                        <Loader2 aria-hidden className="h-3 w-3 animate-spin" />
+                        Waiting for response…
+                      </p>
+                    ) : null}
+
+                    {apiTest.state === 'error' ? (
+                      <pre className="mt-1.5 overflow-x-auto rounded-md border border-rose-900/60 bg-rose-950/25 p-2.5 font-mono text-[10px] leading-4 text-rose-300">
+                        Request failed: {apiTest.error}
+                      </pre>
+                    ) : null}
+
+                    {apiTest.state === 'done' ? (
+                      <pre className="mt-1.5 max-h-72 overflow-auto whitespace-pre-wrap break-all rounded-md border border-neutral-800 bg-neutral-950/70 p-2.5 font-mono text-[10px] leading-4 text-neutral-300">
+                        {apiTest.body}
+                      </pre>
                     ) : null}
                   </div>
-
-                  {apiTest.state === 'loading' ? (
-                    <p className="mt-1.5 flex items-center gap-2 font-mono text-[11px] text-neutral-500">
-                      <Loader2 aria-hidden className="h-3 w-3 animate-spin" />
-                      Waiting for response…
-                    </p>
-                  ) : null}
-
-                  {apiTest.state === 'error' ? (
-                    <pre className="mt-1.5 overflow-x-auto rounded-md border border-rose-900/60 bg-rose-950/25 p-2.5 font-mono text-[10px] leading-4 text-rose-300">
-                      Request failed: {apiTest.error}
-                    </pre>
-                  ) : null}
-
-                  {apiTest.state === 'done' ? (
-                    <pre className="mt-1.5 max-h-72 overflow-auto whitespace-pre-wrap break-all rounded-md border border-neutral-800 bg-neutral-950/70 p-2.5 font-mono text-[10px] leading-4 text-neutral-300">
-                      {apiTest.body}
-                    </pre>
-                  ) : null}
-                </div>
-              ) : null}
+                ) : null}
+              </div>
             </section>
           ) : null}
 
@@ -605,31 +713,32 @@ export default function FeedPage() {
           ) : null}
 
           {status === 'ready' && visiblePosts.length > 0 ? (
-            <ul className="space-y-3.5">
-              {visiblePosts.map((post, index) => {
+            <ul className="space-y-3.5" ref={feedListRef}>
+              {visiblePosts.map((post) => {
                 const isOpen = openRationale === post.id;
                 const isLatest = post.id === latestPostId;
+                const isShown = shownCards.has(post.id);
 
                 return (
                   <li
                     key={post.id}
+                    data-post-id={post.id}
                     // Exactly two border treatments, no third case: the newest
                     // post gets the accent, every other card gets the same
                     // cool mid-gray. /80 background rather than /40 — against
                     // the starfield a 40%-opaque card let stars read through
                     // the body text.
+                    // Scale and opacity are Tailwind utilities, not inline
+                    // transform: Tailwind composes scale and the hover
+                    // translate through separate CSS variables, so the two
+                    // no longer overwrite each other.
                     className={`rounded-lg border bg-neutral-900/80 p-4 transition-[transform,opacity,border-color,box-shadow] duration-500 ease-out hover:-translate-y-0.5 hover:border-cyan-700/60 hover:shadow-[0_0_0_1px_rgba(34,211,238,0.14),0_12px_32px_-12px_rgba(0,0,0,0.9)] ${
+                      isShown ? 'scale-100 opacity-100' : 'scale-95 opacity-0'
+                    } ${
                       isLatest
                         ? 'border-cyan-600/70 shadow-[0_0_0_1px_rgba(34,211,238,0.10),0_0_28px_-14px_rgba(34,211,238,0.7)]'
                         : 'border-[#3d464d]'
                     }`}
-                    style={{
-                      opacity: entered ? 1 : 0,
-                      transform: entered ? 'translateY(0)' : 'translateY(12px)',
-                      // Cap the cascade so a long feed's last card isn't held
-                      // back for several seconds.
-                      transitionDelay: `${Math.min(index, 8) * 70}ms`,
-                    }}
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
