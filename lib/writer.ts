@@ -27,9 +27,11 @@ VOICE RULES:
   Short declarative sentences do not mean a short post. Each sentence should do real work — a fact,
   a mechanism, a comparison, a consequence, what a practitioner should watch for — not restate the
   previous sentence in fewer words. If you're tracking below 80 words, you have not run out of
-  things to say: add the implication, the contrast with how this was handled before, or what
-  changes for someone operating a system like this. Do not stop early just because you've covered
-  the headline fact.
+  things to say: add the implication, or what someone operating a similar system should take from
+  this — using only what the source actually states, never an invented number, system name, or
+  mechanism to pad length. Do not stop early just because you've covered the headline fact, and do
+  not invent detail just because you haven't hit 80 words yet — a post that ends at 75 honest words
+  is correct behavior if the source is genuinely that thin.
 - DO NOT write a string of short, isolated subject-verb-object sentences back to back (e.g. "It
   tracks prediction quality. It also detects drift. This is useful."). That is release-notes
   style, not Rhea's voice, even though each sentence is technically under 22 words. Instead, vary
@@ -60,16 +62,23 @@ VOICE RULES:
 - Never: exclamation points, emoji, hype language, unqualified superlatives ("best",
   "revolutionary").
 
-NO SPECULATION: Only state mechanisms, causes, or explanations that are explicitly present in the
-given title/snippet. If the snippet doesn't explain WHY something happened, do not guess or invent
-a plausible-sounding cause. This is not limited to the phrase "likely due to" — the same rule
-applies to any hedge that introduces an unstated cause or future action, including "may need to,"
-"could involve," "this suggests," "probably because," and "this implies." If the source doesn't
-say it, don't write it, in any phrasing. This means dropping ONE unsupported claim, not shrinking
-the whole post — describe the observed effect, its implication, and what it means for someone
-building or operating a similar system instead. There is almost always more true, supportable
-material to write about than the single causal mechanism, even when the source doesn't explain
-the "why."
+NO FABRICATION (read this carefully, it is the most important rule): Every specific fact in your
+post — every number, percentage, named system, tool, service, company, metric name, or technical
+mechanism — must appear in the given title/snippet, or be a word-for-word/close paraphrase of
+something that does. This applies whether you state it as a hedge ("may involve X") or as a flat
+assertion ("uses X"). Flat, confident assertion of an invented fact is a WORSE violation than a
+hedged guess, not a safer one — do not "solve" the hedging rule by asserting invented specifics
+instead of guessing them.
+
+Concretely: if the snippet says a system "tracks prediction quality and detects drift," you may
+restate and discuss exactly that. You may NOT invent the storage layer it uses, the alerting
+mechanism, a metric name, a percentage, a threshold, or an architecture diagram in your head —
+even if it's a plausible guess at how such a system would typically work. If you don't know
+something, you are not allowed to know it for the purposes of this post. Write about what IS
+stated: the effect, its stakes, and what it implies for someone operating a similar system —
+using only entities and numbers named in the source. A shorter, sparser-on-detail post that is
+100% traceable to the source beats a richer-sounding one with invented specifics, every time —
+Rhea's whole identity is that she doesn't do the second thing.
 
 TASK: You are given one approved topic (title, url, snippet) and the editorial reason it was
 approved. Write:
@@ -135,12 +144,134 @@ function countWords(text: string): number {
 }
 
 /**
- * The model sometimes returns the post as indented lines inside the JSON string.
- * These posts are single-paragraph prose, so collapse any run of whitespace to a
- * single space rather than persisting the stray newlines.
+ * The model sometimes returns the post as indented lines inside the JSON string,
+ * and emits typographic hyphens (U+2011 and friends) inside terms like
+ * "100k-token". These posts are single-paragraph ASCII prose, so collapse
+ * whitespace runs and fold the exotic dashes down to "-".
+ *
+ * The em dash (U+2014) is left alone — the voice rules allow one per post.
  */
 function normalizeWhitespace(text: string): string {
-  return text.replace(/\s+/g, ' ').trim();
+  return text
+    .replace(/[‐‑‒–−﹘﹣－]/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Words that are capitalized often enough mid-prose that treating them as proper
+ * nouns produces noise rather than signal.
+ */
+const CAPITALIZED_STOPWORDS = new Set([
+  'The', 'This', 'That', 'These', 'Those', 'It', 'Its', 'A', 'An', 'And',
+  'But', 'Or', 'If', 'When', 'While', 'Because', 'Without', 'With', 'For',
+  'From', 'At', 'In', 'On', 'By', 'To', 'As', 'So', 'Below', 'Above',
+  'Success', 'Trace', 'Keeping', 'Deploying', 'Nightly', 'Worth', 'Better',
+  'Each', 'Every', 'One', 'Two', 'Both', 'Not', 'No', 'Only', 'Instead',
+  'There', 'Here', 'What', 'Which', 'Who', 'How', 'Why', 'Where',
+  // Sentence-initial connectives. Without these, an ordinary opener followed by
+  // a real proper noun ("Until Anthropic ...") is misread as a fabricated
+  // entity — and since fabrication is a hard failure, that aborts the post.
+  'Until', 'Since', 'After', 'Before', 'During', 'Although', 'Though',
+  'Even', 'Once', 'Unless', 'Rather', 'Given', 'Across', 'Beyond', 'Within',
+  'Under', 'Over', 'Between', 'Despite', 'Yet', 'Still', 'Now', 'Then',
+  'First', 'Second', 'Third', 'Finally', 'However', 'Moreover', 'Meanwhile',
+  'Their', 'Our', 'Your', 'They', 'His', 'Her', 'Anybody', 'Someone',
+  'Anyone', 'Teams', 'Engineers', 'Operators', 'Running', 'Treating',
+  'Reproducing', 'Publishing', 'Adding', 'Using', 'Building', 'Measuring',
+]);
+
+/**
+ * Pull out the specifics worth verifying against the source: numbers, all-caps
+ * acronyms, and multi-word capitalized phrases.
+ *
+ * Deliberately ignores lone capitalized words — a sentence-initial "Drift" is
+ * not a proper noun, and flagging it would bury the real finds. Multi-word
+ * phrases, acronyms and numbers are what caught the actual fabrications
+ * ("CloudWatch", "MTTR", "94%").
+ */
+export function extractSpecifics(text: string): string[] {
+  const found: string[] = [];
+  const seen: Record<string, true> = {};
+  const add = (value: string) => {
+    if (value && !seen[value]) {
+      seen[value] = true;
+      found.push(value);
+    }
+  };
+
+  // Numbers, percentages, and shorthand magnitudes (100k, 3.5, 12%).
+  const numbers =
+    text.match(/\b\d+(?:\.\d+)?k\b|\b\d+(?:\.\d+)?%|\b\d+(?:\.\d+)?\b/gi) ?? [];
+  numbers.forEach(add);
+
+  // All-caps acronyms of 2+ letters (SLA, MTTR).
+  (text.match(/\b[A-Z]{2,}[0-9]*\b/g) ?? []).forEach(add);
+
+  // Internally-capitalized single tokens (CloudWatch, SageMaker, GitHub).
+  (text.match(/\b[A-Z][a-z]+[A-Z][A-Za-z0-9]*\b/g) ?? []).forEach(add);
+
+  // Multi-word capitalized sequences (Amazon Quick, Anthropic Labs).
+  const phrases =
+    text.match(/\b[A-Z][A-Za-z0-9]+(?:\s+[A-Z][A-Za-z0-9]+)+\b/g) ?? [];
+  phrases.forEach((phrase) => {
+    const words = phrase.split(/\s+/);
+    // Drop a leading sentence-initial stopword ("Below 80k" -> "80k").
+    const trimmed = CAPITALIZED_STOPWORDS.has(words[0])
+      ? words.slice(1).join(' ')
+      : phrase;
+    if (trimmed.indexOf(' ') !== -1) add(trimmed);
+  });
+
+  return found;
+}
+
+/** Normalize for comparison: lowercase, fold dashes, collapse whitespace. */
+function forMatching(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/[‐‑‒–—−]/g, '-')
+    .replace(/\s+/g, ' ');
+}
+
+/**
+ * Specifics asserted in the post that do not appear anywhere in the source.
+ */
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Whole-token match. A plain substring test is unsafe here: "CI" would be
+ * "found" inside "reproducible", silently clearing a fabricated term.
+ */
+function containsToken(haystack: string, needle: string): boolean {
+  return new RegExp(`(^|[^a-z0-9])${escapeRegExp(needle)}([^a-z0-9]|$)`, 'i').test(
+    haystack
+  );
+}
+
+export function findFabricatedSpecifics(
+  text: string,
+  sourceText: string
+): string[] {
+  const source = forMatching(sourceText);
+  return extractSpecifics(text).filter((candidate) => {
+    const needle = forMatching(candidate);
+    if (containsToken(source, needle)) return false;
+    // "100k-token" is supported by a source that says "100k tokens", so retry
+    // with separators removed on both sides — still whole-token, not substring.
+    const collapse = (s: string) => s.replace(/[\s-]+/g, '');
+    return !containsToken(collapse(source), collapse(needle));
+  });
+}
+
+function fabricationRetryInstruction(terms: string[]): string {
+  return `\n\nYour previous response contained specifics that do not appear in the given title, snippet, or judgment reason: ${terms
+    .map((t) => `"${t}"`)
+    .join(
+      ', '
+    )}. Remove them and restate using only facts present in the source. Do not substitute different invented specifics.`;
 }
 
 function lengthRetryInstruction(words: number): string {
@@ -206,9 +337,13 @@ async function requestPost(
  * real post must not silently persist a fabricated one, so a malformed response
  * is retried once and then surfaced as an error.
  *
- * Length is treated differently: a post outside the accepted band is retried
- * once with a corrective instruction, but if the retry still misses, the post is
- * returned with a warning. Length is a quality bar, not a correctness one.
+ * Two post-generation checks, with deliberately different severities:
+ *
+ * - Fabrication (hard): any number, acronym or proper noun asserted in the post
+ *   but absent from title/snippet/judgmentReason triggers one corrective retry,
+ *   then throws. A post with invented facts is never returned.
+ * - Length (soft): a post outside the accepted band is retried once, but if the
+ *   retry still misses it is returned with a warning.
  */
 export async function writePost(
   topic: DiscoveredTopic,
@@ -221,6 +356,8 @@ export async function writePost(
 
   const client = new Groq({ apiKey, fetch: noStoreFetch });
   const userContent = JSON.stringify({ topic, judgmentReason }, null, 2);
+  // Everything the post is allowed to assert as fact.
+  const sourceText = [topic.title, topic.snippet, judgmentReason].join('\n');
 
   let lastProblem = '';
   let extraInstruction = '';
@@ -271,6 +408,32 @@ export async function writePost(
       text: normalizeWhitespace(validated.data.text),
       rationale: normalizeWhitespace(validated.data.rationale),
     };
+
+    // Fabrication is checked before length, and is never tolerated: a post with
+    // invented specifics must not reach the caller even once.
+    const fabricated = findFabricatedSpecifics(post.text, sourceText);
+    if (fabricated.length > 0) {
+      lastProblem = `fabricated specifics: ${fabricated.join(', ')}`;
+      if (attempt === 0) {
+        console.warn(
+          `writePost: response contained specifics absent from the source (${fabricated.join(
+            ', '
+          )}); retrying once`
+        );
+        extraInstruction = fabricationRetryInstruction(fabricated);
+        // Deliberately not kept as a fallback — an unsupported post is worse
+        // than no post.
+        outOfRangePost = null;
+        continue;
+      }
+
+      throw new Error(
+        `writePost: retry still contained specifics absent from the source: ${fabricated.join(
+          ', '
+        )}`
+      );
+    }
+
     const words = countWords(post.text);
 
     if (words >= ACCEPT_MIN_WORDS && words <= ACCEPT_MAX_WORDS) {
