@@ -2,9 +2,10 @@ import Groq from 'groq-sdk';
 import { z } from 'zod';
 import type { DiscoveredTopic } from '@/lib/discovery';
 
-// Writer-specific. lib/judgment.ts stays on llama-3.3-70b-versatile — that's a
-// classification task and it performs well there.
-const MODEL = 'openai/gpt-oss-120b';
+// Was openai/gpt-oss-120b, which exhausted its 200k free-tier daily token
+// budget. This model has a separate budget and already backs judgment and the
+// grounding check.
+const MODEL = 'llama-3.3-70b-versatile';
 
 // Generative writing, unlike judgment's 0.2 — this needs room to phrase things.
 const TEMPERATURE = 0.7;
