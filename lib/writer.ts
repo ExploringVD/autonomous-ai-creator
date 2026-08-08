@@ -6,7 +6,7 @@ import type { DiscoveredTopic } from '@/lib/discovery';
 // while this model's 200k free-tier daily token budget was exhausted. Judgment
 // and the grounding check stay on the 70B model, so they draw on a separate
 // budget and a heavy cycle doesn't contend with itself.
-const MODEL = 'llama-3.3-70b-versatile';
+const MODEL = 'openai/gpt-oss-120b';
 
 // Generative writing, unlike judgment's 0.2 — this needs room to phrase things.
 const TEMPERATURE = 0.7;
