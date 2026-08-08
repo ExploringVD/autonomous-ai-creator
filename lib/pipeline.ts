@@ -6,7 +6,7 @@ import { judgeTopic, type TopicJudgment } from '@/lib/judgment';
  * How many previously published topics to show the judgment call. The novelty
  * standard is only as good as this window: anything older is invisible to it.
  */
-export const RECENT_TOPICS_LIMIT = 20;
+export const RECENT_TOPICS_LIMIT = 10;
 
 /**
  * Judge candidates for one agent, with that agent's recently published topics
