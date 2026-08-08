@@ -36,14 +36,20 @@ const RANGES: { key: RangeKey; label: string }[] = [
 ];
 
 /**
- * Stars that breathe on top of the static field. The durations are mutually
- * non-harmonic and the delays are offset so the four never pulse together.
+ * Stars that breathe on top of the static field, spread across the full
+ * viewport rather than the sidebar. The durations are mutually non-harmonic
+ * and the delays are offset so they never pulse together.
  */
 const TWINKLING_STARS = [
   { top: '11%', left: '6%', size: 2, duration: '6.5s', delay: '0s' },
   { top: '27%', left: '18%', size: 1.5, duration: '8.3s', delay: '1.7s' },
   { top: '7%', left: '33%', size: 1.8, duration: '7.1s', delay: '3.4s' },
   { top: '44%', left: '9%', size: 1.4, duration: '9.7s', delay: '2.2s' },
+  { top: '15%', left: '57%', size: 1.7, duration: '7.9s', delay: '0.8s' },
+  { top: '62%', left: '73%', size: 2.1, duration: '6.1s', delay: '4.1s' },
+  { top: '35%', left: '88%', size: 1.5, duration: '9.1s', delay: '2.9s' },
+  { top: '79%', left: '46%', size: 1.6, duration: '8.7s', delay: '1.2s' },
+  { top: '88%', left: '21%', size: 1.3, duration: '7.4s', delay: '3.8s' },
 ];
 
 function formatDate(iso: string): string {
@@ -178,10 +184,11 @@ export default function FeedPage() {
   return (
     <main className="relative min-h-screen bg-neutral-950 text-neutral-200 antialiased">
       {/*
-        Atmosphere: indigo/violet bled into the black behind the header and
-        sidebar only. Both ellipses are anchored to the top-left and fall off
-        well before the feed column, so the cards still sit on flat black —
-        this is depth, not a visible tint.
+        Nebula wash. Five ellipses placed across the full width — top-left,
+        top-right, mid-right and bottom-centre — so the colour spans the page
+        instead of pooling in one corner. Alphas are held in the 0.10–0.22
+        band: high enough to read as colour at a glance, low enough that the
+        page is still black rather than blue.
       */}
       <div
         aria-hidden
@@ -190,34 +197,56 @@ export default function FeedPage() {
         // still renders, it just holds still.
         className="pointer-events-none fixed -inset-[10%] motion-safe:animate-nebula-drift"
         style={{
+          // Sized in vw/vh, not px: with pixel radii a phone viewport sits
+          // entirely inside one ellipse's hot centre and the whole screen goes
+          // purple. Viewport units keep the same composition at every width.
           backgroundImage: [
-            'radial-gradient(ellipse 900px 620px at 8% -8%, rgba(99, 102, 241, 0.10), transparent 62%)',
-            'radial-gradient(ellipse 620px 520px at 0% 22%, rgba(139, 92, 246, 0.06), transparent 68%)',
+            'radial-gradient(ellipse 76vw 84vh at 10% -6%, rgba(99, 102, 241, 0.22), transparent 64%)',
+            'radial-gradient(ellipse 62vw 69vh at 88% 4%, rgba(124, 58, 237, 0.16), transparent 66%)',
+            'radial-gradient(ellipse 57vw 76vh at 62% 46%, rgba(56, 89, 189, 0.13), transparent 68%)',
+            'radial-gradient(ellipse 69vw 69vh at 30% 96%, rgba(76, 63, 176, 0.15), transparent 70%)',
+            'radial-gradient(ellipse 49vw 62vh at 0% 40%, rgba(139, 92, 246, 0.10), transparent 72%)',
           ].join(', '),
         }}
       />
 
       {/*
-        Starfield. Four layers rather than one grid: the sizes are mutually
+        The distant cloud: one big diffuse mass, blurred hard enough that no
+        edge survives. Sits under the starfield so stars read as being in
+        front of it.
+      */}
+      <div
+        aria-hidden
+        className="pointer-events-none fixed left-[38%] top-[18%] h-[26rem] w-[26rem] -translate-x-1/2 rounded-full opacity-[0.5] blur-[90px] sm:h-[46rem] sm:w-[46rem] sm:blur-[130px]"
+        style={{
+          background:
+            'radial-gradient(circle, rgba(67, 56, 202, 0.30) 0%, rgba(88, 28, 135, 0.16) 45%, transparent 72%)',
+        }}
+      />
+
+      {/*
+        Starfield. Six layers rather than one grid: the tile sizes are mutually
         prime-ish so the layers never line up into a repeating lattice, and
         each carries its own dot size and opacity so the dots read as varied.
+        No mask — the field covers the whole viewport, so the feed column sits
+        on stars rather than flat black.
       */}
       <div
         aria-hidden
         className="pointer-events-none fixed inset-0"
         style={{
           backgroundImage: [
-            'radial-gradient(circle, rgba(226, 232, 240, 0.16) 1.1px, transparent 1.1px)',
-            'radial-gradient(circle, rgba(203, 213, 225, 0.10) 1.4px, transparent 1.4px)',
-            'radial-gradient(circle, rgba(226, 232, 240, 0.07) 0.9px, transparent 0.9px)',
-            'radial-gradient(circle, rgba(148, 163, 184, 0.05) 0.7px, transparent 0.7px)',
+            'radial-gradient(circle, rgba(241, 245, 249, 0.55) 1.2px, transparent 1.2px)',
+            'radial-gradient(circle, rgba(226, 232, 240, 0.38) 1.5px, transparent 1.5px)',
+            'radial-gradient(circle, rgba(203, 213, 225, 0.30) 1px, transparent 1px)',
+            'radial-gradient(circle, rgba(226, 232, 240, 0.22) 0.8px, transparent 0.8px)',
+            'radial-gradient(circle, rgba(191, 219, 254, 0.26) 1.1px, transparent 1.1px)',
+            'radial-gradient(circle, rgba(148, 163, 184, 0.16) 0.7px, transparent 0.7px)',
           ].join(', '),
-          backgroundSize: '137px 149px, 211px 179px, 89px 97px, 53px 61px',
-          backgroundPosition: '18px 32px, 96px 12px, 47px 71px, 8px 44px',
-          maskImage:
-            'linear-gradient(to bottom, black, black 55%, transparent 100%)',
-          WebkitMaskImage:
-            'linear-gradient(to bottom, black, black 55%, transparent 100%)',
+          backgroundSize:
+            '97px 109px, 163px 139px, 71px 83px, 43px 47px, 191px 173px, 31px 37px',
+          backgroundPosition:
+            '18px 32px, 96px 12px, 47px 71px, 8px 44px, 132px 88px, 25px 19px',
         }}
       />
 
@@ -294,7 +323,7 @@ export default function FeedPage() {
 
           {summary && summary.topicsJudged > 0 ? (
             <section
-              className="mt-5 rounded-lg border border-neutral-800 bg-neutral-900/40 p-3.5 transition-opacity duration-700"
+              className="mt-5 rounded-lg border border-neutral-800 bg-neutral-900/80 p-3.5 transition-opacity duration-700"
               style={{ opacity: entered ? 1 : 0 }}
             >
               <h2 className="font-mono text-[10px] uppercase tracking-wider text-neutral-500">
@@ -418,7 +447,9 @@ export default function FeedPage() {
                     // Border is a cool mid-gray, not near-black: it has to
                     // delineate the card against the background at rest, with
                     // hover only intensifying what is already visible.
-                    className="rounded-lg border border-[#3d464d] bg-neutral-900/40 p-4 transition-[transform,opacity,border-color,box-shadow] duration-500 ease-out hover:-translate-y-0.5 hover:border-cyan-700/60 hover:shadow-[0_0_0_1px_rgba(34,211,238,0.14),0_12px_32px_-12px_rgba(0,0,0,0.9)]"
+                    // /80 rather than /40: against the denser starfield a
+                    // 40%-opaque card let stars read through the body text.
+                    className="rounded-lg border border-[#3d464d] bg-neutral-900/80 p-4 transition-[transform,opacity,border-color,box-shadow] duration-500 ease-out hover:-translate-y-0.5 hover:border-cyan-700/60 hover:shadow-[0_0_0_1px_rgba(34,211,238,0.14),0_12px_32px_-12px_rgba(0,0,0,0.9)]"
                     style={{
                       opacity: entered ? 1 : 0,
                       transform: entered ? 'translateY(0)' : 'translateY(12px)',
