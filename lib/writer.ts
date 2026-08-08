@@ -80,6 +80,14 @@ using only entities and numbers named in the source. A shorter, sparser-on-detai
 100% traceable to the source beats a richer-sounding one with invented specifics, every time —
 Rhea's whole identity is that she doesn't do the second thing.
 
+What this rule does NOT forbid: your own analysis. A forward-looking recommendation, or an
+implication logically derived from a fact the source does state, is Rhea's editorial contribution
+and does not need to appear verbatim in the source. The line is whether you are introducing a NEW
+FACT. Banned: "the drop comes from the attention budget stretching thin" — that invents a
+mechanism the source never states. Allowed: "given the stated 100k-token drop, practitioners
+should watch tool-success rate near that threshold" — that adds no new fact, it reasons from the
+one the source gives you. Draw conclusions freely; invent details never.
+
 TASK: You are given one approved topic (title, url, snippet) and the editorial reason it was
 approved. Write:
 
@@ -292,9 +300,23 @@ Do NOT flag:
 - restatements or paraphrases of what SOURCE does say
 - generic commentary that asserts no new specific fact about the subject
 - the author's editorial opinion about why the topic matters
+- forward-looking practitioner recommendations, or implications logically derived from a fact
+  SOURCE does state. These are the author's own analysis and are NOT required to appear in SOURCE.
 
-Be strict. If SOURCE does not contain the information, the claim is unsupported, however plausible
-or conventional it sounds.
+The test is whether the claim introduces a NEW FACT, not whether it appears verbatim in SOURCE.
+
+Example of a claim you MUST flag (invents a mechanism SOURCE never states):
+  "the drop comes from the attention budget stretching thin, leaving fewer slots for tool tokens"
+
+Example of a claim you must NOT flag (adds no new fact, reasons from a stated one):
+  "given the stated 100k-token drop, practitioners should watch tool-success rate near that
+  threshold"
+
+Both mention the same subject. The first asserts an unstated cause; the second only draws a
+conclusion from a number SOURCE already gives. Flag the first, allow the second.
+
+Be strict about new facts and permissive about reasoning. If SOURCE does not contain the
+information and the claim asserts it as fact, it is unsupported, however plausible it sounds.
 
 Output STRICT JSON, nothing else — no markdown fences, no prose:
 {"grounded": true|false, "unsupportedClaims": ["...", "..."]}
@@ -370,6 +392,13 @@ export async function checkGrounding(
   };
 }
 
+/**
+ * Last-resort instruction: grounding beats length. Used only after two attempts
+ * have failed the grounding gate, on the theory that the model kept inventing
+ * because it was trying to reach the word floor from a thin source.
+ */
+const FALLBACK_INSTRUCTION = `\n\nFINAL ATTEMPT — GROUNDING NOW OVERRIDES LENGTH. Your previous attempts introduced facts that are not in the source. Write only what the source fully supports. Do not add any new fact: no mechanism, cause, number, named system, or technical detail that is not stated in the source. You may still draw conclusions and make recommendations that follow from stated facts. Ignore the 80-150 word requirement for this attempt: a post of roughly 50 words is acceptable and is strongly preferred over adding anything unsupported. Say less.`;
+
 function fabricationRetryInstruction(terms: string[]): string {
   return `\n\nYour previous response contained specifics that do not appear in the given title, snippet, or judgment reason: ${terms
     .map((t) => `"${t}"`)
@@ -435,6 +464,56 @@ async function requestPost(
 }
 
 /**
+ * One last generation with the length requirement waived, gated on grounding.
+ * Returns null if it fails to parse, validate, or ground.
+ */
+async function attemptGroundedFallback(
+  client: Groq,
+  userContent: string,
+  sourceText: string
+): Promise<{ post: WrittenPost } | { problem: string }> {
+  let raw: string;
+  try {
+    raw = await requestPost(client, userContent, FALLBACK_INSTRUCTION);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { problem: `fallback request failed: ${message}` };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stripFences(raw));
+  } catch {
+    return { problem: 'fallback response was not valid JSON' };
+  }
+
+  const validated = postSchema.safeParse(parsed);
+  if (!validated.success) {
+    return { problem: 'fallback failed schema validation' };
+  }
+
+  const post: WrittenPost = {
+    ...validated.data,
+    text: normalizeWhitespace(validated.data.text),
+    rationale: normalizeWhitespace(validated.data.rationale),
+  };
+
+  const grounding = await checkGrounding(client, post.text, sourceText);
+  if (grounding === null) {
+    return { problem: 'grounding check unavailable for fallback' };
+  }
+  if (!grounding.grounded) {
+    return {
+      problem: `fallback still ungrounded: ${grounding.unsupportedClaims.join(
+        ' | '
+      )}`,
+    };
+  }
+
+  return { post };
+}
+
+/**
  * Write a post for one approved topic.
  *
  * Throws only when no valid post could be produced. A caller that can't get a
@@ -471,6 +550,7 @@ export async function writePost(
   // A valid post that only missed the length band, kept in case the retry
   // produces nothing usable at all.
   let outOfRangePost: WrittenPost | null = null;
+  let needsGroundedFallback = false;
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
     let raw: string;
@@ -545,19 +625,19 @@ export async function writePost(
 
     if (unsupported !== null) {
       lastProblem = `unsupported claims: ${unsupported.join(' | ')}`;
+      // Deliberately not kept as a fallback — an unsupported post is worse
+      // than no post.
+      outOfRangePost = null;
+
       if (attempt === 0) {
         extraInstruction = fabricationRetryInstruction(unsupported);
-        // Deliberately not kept as a fallback — an unsupported post is worse
-        // than no post.
-        outOfRangePost = null;
         continue;
       }
 
-      throw new Error(
-        `writePost: retry still contained unsupported claims: ${unsupported.join(
-          ' | '
-        )}`
-      );
+      // Second attempt still ungrounded: try once more with length dropped as a
+      // requirement, then give up.
+      needsGroundedFallback = true;
+      break;
     }
 
     const words = countWords(post.text);
@@ -579,6 +659,29 @@ export async function writePost(
       `writePost: retry still ${words} words, outside ${ACCEPT_MIN_WORDS}-${ACCEPT_MAX_WORDS}; keeping it anyway`
     );
     return post;
+  }
+
+  if (needsGroundedFallback) {
+    console.warn(
+      'writePost: two attempts failed grounding; trying a short grounded fallback'
+    );
+
+    const fallback = await attemptGroundedFallback(
+      client,
+      userContent,
+      sourceText
+    );
+
+    if ('post' in fallback) {
+      console.warn(
+        `writePost: fallback post accepted at ${countWords(
+          fallback.post.text
+        )} words (length requirement waived)`
+      );
+      return fallback.post;
+    }
+
+    throw new Error(`writePost: grounded fallback also failed — ${fallback.problem}`);
   }
 
   if (outOfRangePost) {

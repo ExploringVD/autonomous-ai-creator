@@ -24,7 +24,39 @@ type NewsApiArticle = {
   title: string | null;
   url: string | null;
   description: string | null;
+  content: string | null;
 };
+
+/**
+ * NewsAPI truncates `content` and appends a marker like "[+2317 chars]". Strip
+ * it so the marker doesn't end up quoted as source material.
+ */
+function stripTruncationMarker(content: string): string {
+  return content.replace(/\[\+\d+\s*chars?\]\s*$/i, '').trim();
+}
+
+/**
+ * Build the snippet from description plus the (truncated) article body.
+ *
+ * The description alone is ~40 words, which is too thin for the writer to say
+ * anything substantive without inventing detail. `content` adds a few hundred
+ * characters of real article text.
+ */
+function buildSnippet(article: NewsApiArticle): string {
+  const description = article.description?.trim() ?? '';
+  const content = article.content ? stripTruncationMarker(article.content) : '';
+
+  if (!content) return description;
+  if (!description) return content;
+
+  // NewsAPI's content usually opens with the description verbatim.
+  const normalized = (s: string) => s.toLowerCase().replace(/\s+/g, ' ');
+  if (normalized(content).indexOf(normalized(description)) === 0) {
+    return content;
+  }
+
+  return `${description} ${content}`;
+}
 
 type NewsApiResponse = {
   status: string;
@@ -175,7 +207,7 @@ function normalize(articles: NewsApiArticle[]): DiscoveredTopic[] {
     topics.push({
       title,
       url,
-      snippet: article.description?.trim() ?? '',
+      snippet: buildSnippet(article),
     });
 
     if (topics.length >= MAX_RESULTS) break;
