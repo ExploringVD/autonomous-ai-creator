@@ -73,6 +73,15 @@ export async function createAgent(input: {
   return rows[0];
 }
 
+/** Every agent, oldest first — the cron cycle iterates all of them. */
+export async function getAllAgents(): Promise<Agent[]> {
+  return query<Agent>(
+    `SELECT id, name, domain, persona_config, created_at
+     FROM agents
+     ORDER BY created_at ASC`
+  );
+}
+
 export async function getAgent(id: string): Promise<Agent | null> {
   const rows = await query<Agent>(
     `SELECT id, name, domain, persona_config, created_at
