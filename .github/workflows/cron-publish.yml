@@ -1,0 +1,16 @@
+name: cron-publish
+
+on:
+  schedule:
+    - cron: '0 */2 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  run-cycle:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger publishing cycle
+        run: |
+          curl -X POST https://autonomous-ai-creator-seven.vercel.app/api/cron/run-cycle \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
+            --fail --silent --show-error
