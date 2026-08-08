@@ -133,13 +133,6 @@ EXAMPLE output:
 Note this example deliberately has NO rhetorical question — most posts shouldn't. It opens on the root cause (a level deeper than the headline's "cache poisoning caused 40 minutes"), states no mechanism beyond what the snippet supports, and closes on a specific claim about cache key scoping rather than a generic summary line.
 `;
 
-const RETRY_SUFFIX =
-  '\n\nIMPORTANT: return ONLY valid JSON, no other text.';
-
-/** The prompt's stated target. */
-const TARGET_MIN_WORDS = 80;
-const TARGET_MAX_WORDS = 150;
-
 /**
  * Accepted band, slightly wider than the target. Length is a quality bar, not a
  * correctness one — a post a few words outside the target still ships.
@@ -305,6 +298,14 @@ Do NOT flag:
 
 The test is whether the claim introduces a NEW FACT, not whether it appears verbatim in SOURCE.
 
+A DRAFT sentence that restates a SOURCE fact in different words is a PARAPHRASE, not an
+unsupported claim. Only flag content that adds information beyond what a reasonable paraphrase
+would contain. Example of an allowed paraphrase: SOURCE says "tracks prediction and data quality",
+DRAFT says "tracks both prediction outcomes and input characteristics" — same fact, different
+words, do not flag. Example of a fabrication: SOURCE says a system "detects drift", DRAFT says it
+"compares recent distributions against an S3 baseline on a nightly schedule" — that adds a
+storage layer, a comparison method and a schedule SOURCE never mentions, so flag it.
+
 Example of a claim you MUST flag (invents a mechanism SOURCE never states):
   "the drop comes from the attention budget stretching thin, leaving fewer slots for tool tokens"
 
@@ -343,8 +344,19 @@ const groundingSchema = z.object({
 export async function checkGrounding(
   client: Groq,
   draft: string,
-  sourceText: string
+  sourceText: string,
+  flaggedTerms: string[] = []
 ): Promise<GroundingResult | null> {
+  // Advisory only. A pattern scan can't tell "100" in "100k tokens" from an
+  // invented number, so its hits are passed as hints for this check to
+  // adjudicate — never as a verdict.
+  const hint =
+    flaggedTerms.length > 0
+      ? `\n\nA pattern check flagged these terms as possibly absent from SOURCE; verify each carefully and ignore any that are in fact present or are ordinary English: ${flaggedTerms.join(
+          ', '
+        )}`
+      : '';
+
   let raw: string;
   try {
     const completion = await client.chat.completions.create({
@@ -355,7 +367,7 @@ export async function checkGrounding(
         { role: 'system', content: GROUNDING_PROMPT },
         {
           role: 'user',
-          content: `SOURCE:\n${sourceText}\n\nDRAFT:\n${draft}`,
+          content: `SOURCE:\n${sourceText}\n\nDRAFT:\n${draft}${hint}`,
         },
       ],
     });
@@ -398,20 +410,6 @@ export async function checkGrounding(
  * because it was trying to reach the word floor from a thin source.
  */
 const FALLBACK_INSTRUCTION = `\n\nFINAL ATTEMPT — GROUNDING NOW OVERRIDES LENGTH. Your previous attempts introduced facts that are not in the source. Write only what the source fully supports. Do not add any new fact: no mechanism, cause, number, named system, or technical detail that is not stated in the source. You may still draw conclusions and make recommendations that follow from stated facts. Ignore the 80-150 word requirement for this attempt: a post of roughly 50 words is acceptable and is strongly preferred over adding anything unsupported. Say less.`;
-
-function fabricationRetryInstruction(terms: string[]): string {
-  return `\n\nYour previous response contained specifics that do not appear in the given title, snippet, or judgment reason: ${terms
-    .map((t) => `"${t}"`)
-    .join(
-      ', '
-    )}. Remove them and restate using only facts present in the source. Do not substitute different invented specifics.`;
-}
-
-function lengthRetryInstruction(words: number): string {
-  return words < TARGET_MIN_WORDS
-    ? `\n\nYour previous response was too short at ${words} words; the post must be ${TARGET_MIN_WORDS}-${TARGET_MAX_WORDS} words, add more supportable detail about the implication or context.`
-    : `\n\nYour previous response was too long at ${words} words; the post must be ${TARGET_MIN_WORDS}-${TARGET_MAX_WORDS} words, tighten it without dropping supportable detail.`;
-}
 
 export type WrittenPost = {
   text: string;
@@ -464,32 +462,35 @@ async function requestPost(
 }
 
 /**
- * One last generation with the length requirement waived, gated on grounding.
- * Returns null if it fails to parse, validate, or ground.
+ * One generation call followed by one grounding call.
+ *
+ * The regex scan runs in between, but only to supply hints to the grounding
+ * check — it never decides the outcome itself.
  */
-async function attemptGroundedFallback(
+async function generateAndGround(
   client: Groq,
   userContent: string,
-  sourceText: string
+  sourceText: string,
+  extraInstruction: string
 ): Promise<{ post: WrittenPost } | { problem: string }> {
   let raw: string;
   try {
-    raw = await requestPost(client, userContent, FALLBACK_INSTRUCTION);
+    raw = await requestPost(client, userContent, extraInstruction);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return { problem: `fallback request failed: ${message}` };
+    return { problem: `request failed: ${message}` };
   }
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(stripFences(raw));
   } catch {
-    return { problem: 'fallback response was not valid JSON' };
+    return { problem: 'response was not valid JSON' };
   }
 
   const validated = postSchema.safeParse(parsed);
   if (!validated.success) {
-    return { problem: 'fallback failed schema validation' };
+    return { problem: 'response failed schema validation' };
   }
 
   const post: WrittenPost = {
@@ -498,15 +499,22 @@ async function attemptGroundedFallback(
     rationale: normalizeWhitespace(validated.data.rationale),
   };
 
-  const grounding = await checkGrounding(client, post.text, sourceText);
+  const hints = findFabricatedSpecifics(post.text, sourceText);
+  if (hints.length > 0) {
+    console.warn(
+      `writePost: pattern check flagged ${hints.join(
+        ', '
+      )} (advisory — passing to grounding check)`
+    );
+  }
+
+  const grounding = await checkGrounding(client, post.text, sourceText, hints);
   if (grounding === null) {
-    return { problem: 'grounding check unavailable for fallback' };
+    return { problem: 'grounding check unavailable' };
   }
   if (!grounding.grounded) {
     return {
-      problem: `fallback still ungrounded: ${grounding.unsupportedClaims.join(
-        ' | '
-      )}`,
+      problem: `ungrounded: ${grounding.unsupportedClaims.join(' | ')}`,
     };
   }
 
@@ -516,20 +524,19 @@ async function attemptGroundedFallback(
 /**
  * Write a post for one approved topic.
  *
- * Throws only when no valid post could be produced. A caller that can't get a
- * real post must not silently persist a fabricated one, so a malformed response
- * is retried once and then surfaced as an error.
+ * Two generation calls at most, each paired with one grounding call:
  *
- * Two post-generation checks, with deliberately different severities:
+ *   1. Full-length attempt. If it grounds, it ships.
+ *   2. Otherwise a short fallback with the length requirement waived. If that
+ *      grounds, it ships. If not, throw.
  *
- * - Grounding (hard): a regex scan for unverified numbers/proper nouns acts as a
- *   fast pre-filter, then an LLM grounding call decides pass/fail — it is the
- *   authoritative gate, and catches invented mechanisms written in plain prose
- *   that the regex cannot see. Either one firing triggers one corrective retry
- *   naming the offending claims, then throws. A post with unsupported claims is
- *   never returned, and neither is one that could not be checked.
- * - Length (soft): a post outside the accepted band is retried once, but if the
- *   retry still misses it is returned with a warning.
+ * The same-length retry-with-feedback step was removed: it rarely reached zero
+ * unsupported claims and tripled token usage against a tight per-minute budget.
+ *
+ * Grounding is a hard gate — a post with unsupported claims is never returned,
+ * and neither is one that could not be checked. Length is advisory only now;
+ * there is no spare call to retry for it, so an out-of-band post is returned
+ * with a warning.
  */
 export async function writePost(
   topic: DiscoveredTopic,
@@ -545,151 +552,39 @@ export async function writePost(
   // Everything the post is allowed to assert as fact.
   const sourceText = [topic.title, topic.snippet, judgmentReason].join('\n');
 
-  let lastProblem = '';
-  let extraInstruction = '';
-  // A valid post that only missed the length band, kept in case the retry
-  // produces nothing usable at all.
-  let outOfRangePost: WrittenPost | null = null;
-  let needsGroundedFallback = false;
+  const first = await generateAndGround(client, userContent, sourceText, '');
 
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    let raw: string;
-    try {
-      raw = await requestPost(client, userContent, extraInstruction);
-    } catch (error) {
-      lastProblem = error instanceof Error ? error.message : String(error);
-      console.error(
-        `writePost: Groq request failed (attempt ${attempt + 1}):`,
-        lastProblem
-      );
-      extraInstruction = RETRY_SUFFIX;
-      continue;
-    }
-
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(stripFences(raw));
-    } catch (error) {
-      lastProblem = error instanceof Error ? error.message : String(error);
-      console.error(
-        `writePost: response was not valid JSON (attempt ${attempt + 1}):`,
-        lastProblem
-      );
-      extraInstruction = RETRY_SUFFIX;
-      continue;
-    }
-
-    const validated = postSchema.safeParse(parsed);
-    if (!validated.success) {
-      lastProblem = JSON.stringify(validated.error.flatten());
-      console.error(
-        `writePost: response failed schema validation (attempt ${attempt + 1}):`,
-        validated.error.flatten()
-      );
-      extraInstruction = RETRY_SUFFIX;
-      continue;
-    }
-
-    const post: WrittenPost = {
-      ...validated.data,
-      text: normalizeWhitespace(validated.data.text),
-      rationale: normalizeWhitespace(validated.data.rationale),
-    };
-
-    // Grounding is checked before length, and is never tolerated: a post with
-    // invented content must not reach the caller even once. The regex scan is
-    // only a fast pre-filter — when it already has a hit, skip the second API
-    // call and go straight to the corrective retry.
-    const fabricated = findFabricatedSpecifics(post.text, sourceText);
-    let unsupported: string[] | null = null;
-
-    if (fabricated.length > 0) {
-      unsupported = fabricated;
+  if ('post' in first) {
+    const words = countWords(first.post.text);
+    if (words < ACCEPT_MIN_WORDS || words > ACCEPT_MAX_WORDS) {
       console.warn(
-        `writePost: regex pre-check flagged specifics absent from the source (${fabricated.join(
-          ', '
-        )}); skipping grounding call`
+        `writePost: post is ${words} words, outside ${ACCEPT_MIN_WORDS}-${ACCEPT_MAX_WORDS}; keeping it (no length retry — the remaining call is reserved for the grounding fallback)`
       );
-    } else {
-      const grounding = await checkGrounding(client, post.text, sourceText);
-      if (grounding === null) {
-        // Could not verify. Fail closed rather than publish unchecked text.
-        unsupported = ['(grounding check unavailable)'];
-      } else if (!grounding.grounded) {
-        unsupported = grounding.unsupportedClaims;
-        console.warn(
-          `writePost: grounding check found ${unsupported.length} unsupported claim(s)`
-        );
-      }
     }
-
-    if (unsupported !== null) {
-      lastProblem = `unsupported claims: ${unsupported.join(' | ')}`;
-      // Deliberately not kept as a fallback — an unsupported post is worse
-      // than no post.
-      outOfRangePost = null;
-
-      if (attempt === 0) {
-        extraInstruction = fabricationRetryInstruction(unsupported);
-        continue;
-      }
-
-      // Second attempt still ungrounded: try once more with length dropped as a
-      // requirement, then give up.
-      needsGroundedFallback = true;
-      break;
-    }
-
-    const words = countWords(post.text);
-
-    if (words >= ACCEPT_MIN_WORDS && words <= ACCEPT_MAX_WORDS) {
-      return post;
-    }
-
-    if (attempt === 0) {
-      console.warn(
-        `writePost: post was ${words} words, outside ${ACCEPT_MIN_WORDS}-${ACCEPT_MAX_WORDS}; retrying once`
-      );
-      outOfRangePost = post;
-      extraInstruction = lengthRetryInstruction(words);
-      continue;
-    }
-
-    console.warn(
-      `writePost: retry still ${words} words, outside ${ACCEPT_MIN_WORDS}-${ACCEPT_MAX_WORDS}; keeping it anyway`
-    );
-    return post;
+    return first.post;
   }
 
-  if (needsGroundedFallback) {
+  console.warn(
+    `writePost: first attempt rejected (${first.problem}); trying a short grounded fallback`
+  );
+
+  const fallback = await generateAndGround(
+    client,
+    userContent,
+    sourceText,
+    FALLBACK_INSTRUCTION
+  );
+
+  if ('post' in fallback) {
     console.warn(
-      'writePost: two attempts failed grounding; trying a short grounded fallback'
+      `writePost: fallback post accepted at ${countWords(
+        fallback.post.text
+      )} words (length requirement waived)`
     );
-
-    const fallback = await attemptGroundedFallback(
-      client,
-      userContent,
-      sourceText
-    );
-
-    if ('post' in fallback) {
-      console.warn(
-        `writePost: fallback post accepted at ${countWords(
-          fallback.post.text
-        )} words (length requirement waived)`
-      );
-      return fallback.post;
-    }
-
-    throw new Error(`writePost: grounded fallback also failed — ${fallback.problem}`);
+    return fallback.post;
   }
 
-  if (outOfRangePost) {
-    console.warn(
-      'writePost: retry produced no valid response; keeping the earlier out-of-range post'
-    );
-    return outOfRangePost;
-  }
-
-  throw new Error(`writePost: failed after retry — ${lastProblem}`);
+  throw new Error(
+    `writePost: grounded fallback also failed — ${fallback.problem} (first attempt: ${first.problem})`
+  );
 }
