@@ -1,7 +1,13 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Activity, Check, ChevronRight, ExternalLink } from 'lucide-react';
+import {
+  Activity,
+  Check,
+  ChevronRight,
+  ExternalLink,
+  Terminal,
+} from 'lucide-react';
 
 type Post = {
   id: string;
@@ -27,6 +33,17 @@ const RANGES: { key: RangeKey; label: string }[] = [
   { key: '6h', label: 'Past 6 hours' },
   { key: 'today', label: 'Today' },
   { key: 'yesterday', label: 'Yesterday' },
+];
+
+/**
+ * Stars that breathe on top of the static field. The durations are mutually
+ * non-harmonic and the delays are offset so the four never pulse together.
+ */
+const TWINKLING_STARS = [
+  { top: '11%', left: '6%', size: 2, duration: '6.5s', delay: '0s' },
+  { top: '27%', left: '18%', size: 1.5, duration: '8.3s', delay: '1.7s' },
+  { top: '7%', left: '33%', size: 1.8, duration: '7.1s', delay: '3.4s' },
+  { top: '44%', left: '9%', size: 1.4, duration: '9.7s', delay: '2.2s' },
 ];
 
 function formatDate(iso: string): string {
@@ -168,7 +185,10 @@ export default function FeedPage() {
       */}
       <div
         aria-hidden
-        className="pointer-events-none fixed inset-0"
+        // Inset negatively so the slow drift never pulls a hard gradient edge
+        // into view. motion-safe: honours prefers-reduced-motion — the layer
+        // still renders, it just holds still.
+        className="pointer-events-none fixed -inset-[10%] motion-safe:animate-nebula-drift"
         style={{
           backgroundImage: [
             'radial-gradient(ellipse 900px 620px at 8% -8%, rgba(99, 102, 241, 0.10), transparent 62%)',
@@ -201,6 +221,28 @@ export default function FeedPage() {
         }}
       />
 
+      {/* Four individually-timed stars over the static field. */}
+      <div aria-hidden className="pointer-events-none fixed inset-0">
+        {TWINKLING_STARS.map((star, i) => (
+          <span
+            key={i}
+            className="absolute rounded-full bg-slate-200 motion-safe:animate-twinkle"
+            style={{
+              top: star.top,
+              left: star.left,
+              height: `${star.size}px`,
+              width: `${star.size}px`,
+              boxShadow: `0 0 ${star.size * 2}px rgba(226, 232, 240, 0.5)`,
+              animationDuration: star.duration,
+              animationDelay: star.delay,
+              // Fallback for prefers-reduced-motion, where no animation runs;
+              // while it does run, the keyframes take precedence over this.
+              opacity: 0.35,
+            }}
+          />
+        ))}
+      </div>
+
       <div className="relative mx-auto grid max-w-6xl grid-cols-1 gap-8 px-5 py-8 lg:grid-cols-[19rem_minmax(0,1fr)] lg:gap-10">
         {/* ── Sidebar ─────────────────────────────────────────────── */}
         <aside className="lg:sticky lg:top-8 lg:self-start">
@@ -209,15 +251,23 @@ export default function FeedPage() {
               {/* Lifts the name off the background without being readable as a glow. */}
               <div
                 aria-hidden
-                className="pointer-events-none absolute -inset-x-6 -inset-y-8"
+                // Vertical bleed only. Bleeding horizontally would push this
+                // layer flush against the viewport edge on narrow screens, and
+                // the ellipse is far enough inside that it costs nothing.
+                className="pointer-events-none absolute inset-x-0 -inset-y-8"
                 style={{
                   backgroundImage:
                     'radial-gradient(ellipse 240px 90px at 22% 50%, rgba(129, 140, 248, 0.13), transparent 70%)',
                 }}
               />
-              <h1 className="relative text-xl font-semibold tracking-tight text-neutral-50">
-                Rhea Kapoor
-              </h1>
+              <div className="relative flex items-center gap-2.5">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-cyan-800/60 bg-cyan-950/40 text-cyan-400 shadow-[0_0_16px_-4px_rgba(34,211,238,0.5),inset_0_0_12px_-8px_rgba(34,211,238,0.8)]">
+                  <Terminal aria-hidden className="h-4 w-4" strokeWidth={2} />
+                </span>
+                <h1 className="text-xl font-semibold tracking-tight text-neutral-50">
+                  Rhea Kapoor
+                </h1>
+              </div>
             </div>
             <p className="mt-1.5 text-[13px] leading-5 text-neutral-400">
               Applied AI Reliability Engineer. Writes about production AI/ML
@@ -235,8 +285,9 @@ export default function FeedPage() {
             </span>
 
             {agentId ? (
-              <p className="mt-2.5 truncate font-mono text-[10px] text-neutral-600">
-                {agentId}
+              <p className="mt-2.5 font-mono text-[10px] text-neutral-600">
+                <span className="text-neutral-500">Agent ID:</span>{' '}
+                <span className="break-all">{agentId}</span>
               </p>
             ) : null}
           </header>
