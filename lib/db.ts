@@ -139,6 +139,55 @@ export async function logTopicDecision(input: {
   return rows[0];
 }
 
+export type JudgmentSummary = {
+  topicsJudged: number;
+  published: number;
+  rejected: number;
+  recentRejections: { topic: string; reason: string | null }[];
+};
+
+/**
+ * Aggregate view of one agent's editorial decisions, for the demo dashboard.
+ *
+ * Counts cover the agent's whole history, not a single cycle — topic_log has no
+ * cycle identifier to group by.
+ */
+export async function getJudgmentSummary(
+  agentId: string,
+  rejectionLimit = 5
+): Promise<JudgmentSummary> {
+  const [counts] = await query<{
+    topics_judged: string;
+    published: string;
+    rejected: string;
+  }>(
+    `SELECT
+       count(*)                                        AS topics_judged,
+       count(*) FILTER (WHERE decision = 'published')  AS published,
+       count(*) FILTER (WHERE decision = 'rejected')   AS rejected
+     FROM topic_log
+     WHERE agent_id = $1`,
+    [agentId]
+  );
+
+  const recentRejections = await query<{ topic: string; reason: string | null }>(
+    `SELECT topic, reason
+     FROM topic_log
+     WHERE agent_id = $1 AND decision = 'rejected'
+     ORDER BY created_at DESC
+     LIMIT $2`,
+    [agentId, rejectionLimit]
+  );
+
+  // count() returns bigint, which pg hands back as a string.
+  return {
+    topicsJudged: Number(counts?.topics_judged ?? 0),
+    published: Number(counts?.published ?? 0),
+    rejected: Number(counts?.rejected ?? 0),
+    recentRejections,
+  };
+}
+
 /**
  * Topics this agent actually published, newest first. Feeds the de-duplication
  * check in editorial judgment, so it reads from topic_log rather than posts:
