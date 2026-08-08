@@ -160,14 +160,40 @@ export default function FeedPage() {
 
   return (
     <main className="relative min-h-screen bg-neutral-950 text-neutral-200 antialiased">
-      {/* Dot-grid texture, faded out toward the bottom so it never fights the text. */}
+      {/*
+        Atmosphere: indigo/violet bled into the black behind the header and
+        sidebar only. Both ellipses are anchored to the top-left and fall off
+        well before the feed column, so the cards still sit on flat black —
+        this is depth, not a visible tint.
+      */}
       <div
         aria-hidden
-        className="pointer-events-none fixed inset-0 opacity-[0.55]"
+        className="pointer-events-none fixed inset-0"
         style={{
-          backgroundImage:
-            'radial-gradient(circle at center, rgb(38 38 38) 1px, transparent 1px)',
-          backgroundSize: '22px 22px',
+          backgroundImage: [
+            'radial-gradient(ellipse 900px 620px at 8% -8%, rgba(99, 102, 241, 0.10), transparent 62%)',
+            'radial-gradient(ellipse 620px 520px at 0% 22%, rgba(139, 92, 246, 0.06), transparent 68%)',
+          ].join(', '),
+        }}
+      />
+
+      {/*
+        Starfield. Four layers rather than one grid: the sizes are mutually
+        prime-ish so the layers never line up into a repeating lattice, and
+        each carries its own dot size and opacity so the dots read as varied.
+      */}
+      <div
+        aria-hidden
+        className="pointer-events-none fixed inset-0"
+        style={{
+          backgroundImage: [
+            'radial-gradient(circle, rgba(226, 232, 240, 0.16) 1.1px, transparent 1.1px)',
+            'radial-gradient(circle, rgba(203, 213, 225, 0.10) 1.4px, transparent 1.4px)',
+            'radial-gradient(circle, rgba(226, 232, 240, 0.07) 0.9px, transparent 0.9px)',
+            'radial-gradient(circle, rgba(148, 163, 184, 0.05) 0.7px, transparent 0.7px)',
+          ].join(', '),
+          backgroundSize: '137px 149px, 211px 179px, 89px 97px, 53px 61px',
+          backgroundPosition: '18px 32px, 96px 12px, 47px 71px, 8px 44px',
           maskImage:
             'linear-gradient(to bottom, black, black 55%, transparent 100%)',
           WebkitMaskImage:
@@ -179,16 +205,27 @@ export default function FeedPage() {
         {/* ── Sidebar ─────────────────────────────────────────────── */}
         <aside className="lg:sticky lg:top-8 lg:self-start">
           <header>
-            <h1 className="text-xl font-semibold tracking-tight text-neutral-50">
-              Rhea Kapoor
-            </h1>
+            <div className="relative">
+              {/* Lifts the name off the background without being readable as a glow. */}
+              <div
+                aria-hidden
+                className="pointer-events-none absolute -inset-x-6 -inset-y-8"
+                style={{
+                  backgroundImage:
+                    'radial-gradient(ellipse 240px 90px at 22% 50%, rgba(129, 140, 248, 0.13), transparent 70%)',
+                }}
+              />
+              <h1 className="relative text-xl font-semibold tracking-tight text-neutral-50">
+                Rhea Kapoor
+              </h1>
+            </div>
             <p className="mt-1.5 text-[13px] leading-5 text-neutral-400">
               Applied AI Reliability Engineer. Writes about production AI/ML
               systems the way an SRE writes an incident postmortem — evidence
               first, allergic to hype.
             </p>
 
-            <span className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-cyan-900/70 bg-cyan-950/30 px-2.5 py-1 text-[11px] font-medium text-cyan-400">
+            <span className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-cyan-800/70 bg-cyan-950/30 px-2.5 py-1 text-[11px] font-medium text-cyan-400 shadow-[0_0_14px_-3px_rgba(34,211,238,0.45),inset_0_0_10px_-6px_rgba(34,211,238,0.6)]">
               <Activity
                 aria-hidden
                 className="h-3 w-3 animate-pulse"
@@ -327,7 +364,10 @@ export default function FeedPage() {
                 return (
                   <li
                     key={post.id}
-                    className="rounded-lg border border-neutral-800 bg-neutral-900/40 p-4 transition-[transform,opacity,border-color,box-shadow] duration-500 ease-out hover:-translate-y-0.5 hover:border-neutral-700 hover:shadow-[0_0_0_1px_rgba(34,211,238,0.12),0_12px_32px_-12px_rgba(0,0,0,0.9)]"
+                    // Border is a cool mid-gray, not near-black: it has to
+                    // delineate the card against the background at rest, with
+                    // hover only intensifying what is already visible.
+                    className="rounded-lg border border-[#3d464d] bg-neutral-900/40 p-4 transition-[transform,opacity,border-color,box-shadow] duration-500 ease-out hover:-translate-y-0.5 hover:border-cyan-700/60 hover:shadow-[0_0_0_1px_rgba(34,211,238,0.14),0_12px_32px_-12px_rgba(0,0,0,0.9)]"
                     style={{
                       opacity: entered ? 1 : 0,
                       transform: entered ? 'translateY(0)' : 'translateY(12px)',
