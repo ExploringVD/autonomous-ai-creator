@@ -113,6 +113,14 @@ const judgmentSchema = z.object({
 });
 
 /**
+ * Next.js patches global fetch and caches responses in its Data Cache. Without
+ * opting out, a repeated batch replays a stale completion instead of reaching
+ * Groq.
+ */
+const noStoreFetch = ((input: RequestInfo | URL, init?: RequestInit) =>
+  fetch(input, { ...init, cache: 'no-store' })) as typeof fetch;
+
+/**
  * Strip markdown fences the model sometimes emits despite being told not to.
  */
 function stripFences(raw: string): string {
@@ -156,7 +164,7 @@ export async function judgeTopic(
 
   let text: string;
   try {
-    const groq = new Groq({ apiKey });
+    const groq = new Groq({ apiKey, fetch: noStoreFetch });
 
     const completion = await groq.chat.completions.create({
       model: MODEL,
