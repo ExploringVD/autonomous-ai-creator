@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { Activity, Check, ChevronRight, ExternalLink } from 'lucide-react';
 
 type Post = {
   id: string;
@@ -151,9 +152,11 @@ export default function FeedPage() {
     return posts.filter((post) => inRange(post.createdAt, range, now));
   }, [posts, range]);
 
+  // Two quotes, not three: the sidebar has to fit a laptop viewport without
+  // scrolling on its own.
   const rejectionQuotes = (summary?.recentRejections ?? [])
     .filter((r) => r.reason)
-    .slice(0, 3);
+    .slice(0, 2);
 
   return (
     <main className="relative min-h-screen bg-neutral-950 text-neutral-200 antialiased">
@@ -172,232 +175,245 @@ export default function FeedPage() {
         }}
       />
 
-      <div className="relative mx-auto max-w-3xl px-6 py-14">
-        <header className="border-b border-neutral-800 pb-8">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <h1 className="text-2xl font-semibold tracking-tight text-neutral-50">
+      <div className="relative mx-auto grid max-w-6xl grid-cols-1 gap-8 px-5 py-8 lg:grid-cols-[19rem_minmax(0,1fr)] lg:gap-10">
+        {/* ── Sidebar ─────────────────────────────────────────────── */}
+        <aside className="lg:sticky lg:top-8 lg:self-start">
+          <header>
+            <h1 className="text-xl font-semibold tracking-tight text-neutral-50">
               Rhea Kapoor
             </h1>
-            <span className="inline-flex items-center gap-2 rounded-full border border-emerald-900/70 bg-emerald-950/40 px-3 py-1 text-[11px] font-medium text-emerald-300">
-              <span className="relative flex h-1.5 w-1.5">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-70" />
-                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
-              </span>
+            <p className="mt-1.5 text-[13px] leading-5 text-neutral-400">
+              Applied AI Reliability Engineer. Writes about production AI/ML
+              systems the way an SRE writes an incident postmortem — evidence
+              first, allergic to hype.
+            </p>
+
+            <span className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-cyan-900/70 bg-cyan-950/30 px-2.5 py-1 text-[11px] font-medium text-cyan-400">
+              <Activity
+                aria-hidden
+                className="h-3 w-3 animate-pulse"
+                strokeWidth={2.5}
+              />
               Autonomous Agent Active
             </span>
-          </div>
 
-          <p className="mt-2 text-sm leading-relaxed text-neutral-400">
-            Applied AI Reliability Engineer. Writes about production AI/ML
-            systems the way an SRE writes an incident postmortem — evidence
-            first, allergic to hype.
-          </p>
-          {agentId ? (
-            <p className="mt-4 font-mono text-[11px] text-neutral-600">
-              agent {agentId}
-            </p>
-          ) : null}
-        </header>
-
-        {summary && summary.topicsJudged > 0 ? (
-          <section
-            className="mt-8 rounded-xl border border-neutral-800 bg-neutral-900/30 p-5 transition-opacity duration-700"
-            style={{ opacity: entered ? 1 : 0 }}
-          >
-            <h2 className="font-mono text-[11px] uppercase tracking-wider text-neutral-500">
-              Editorial judgment
-            </h2>
-            <p className="mt-2 text-sm text-neutral-300">
-              <span className="font-medium text-neutral-100">
-                {summary.topicsJudged}
-              </span>{' '}
-              topics considered
-              <span className="text-neutral-600"> · </span>
-              <span className="font-medium text-emerald-400">
-                {summary.published}
-              </span>{' '}
-              published
-              <span className="text-neutral-600"> · </span>
-              <span className="font-medium text-neutral-400">
-                {summary.rejected}
-              </span>{' '}
-              rejected
-            </p>
-
-            {rejectionQuotes.length > 0 ? (
-              <ul className="mt-4 space-y-3">
-                {rejectionQuotes.map((rejection, i) => (
-                  <li
-                    key={`${rejection.topic}-${i}`}
-                    className="border-l-2 border-neutral-700 pl-3"
-                  >
-                    <p className="text-[11px] font-medium text-neutral-400">
-                      {rejection.topic}
-                    </p>
-                    <p className="mt-1 text-xs italic leading-5 text-neutral-500">
-                      “{rejection.reason}”
-                    </p>
-                  </li>
-                ))}
-              </ul>
+            {agentId ? (
+              <p className="mt-2.5 truncate font-mono text-[10px] text-neutral-600">
+                {agentId}
+              </p>
             ) : null}
-          </section>
-        ) : null}
+          </header>
 
-        {status === 'loading' ? (
-          <div className="flex items-center gap-3 py-16 text-sm text-neutral-500">
-            <span
-              aria-hidden
-              className="h-3 w-3 animate-spin rounded-full border-2 border-neutral-700 border-t-neutral-400"
-            />
-            Loading feed…
-          </div>
-        ) : null}
+          {summary && summary.topicsJudged > 0 ? (
+            <section
+              className="mt-5 rounded-lg border border-neutral-800 bg-neutral-900/40 p-3.5 transition-opacity duration-700"
+              style={{ opacity: entered ? 1 : 0 }}
+            >
+              <h2 className="font-mono text-[10px] uppercase tracking-wider text-neutral-500">
+                Editorial judgment
+              </h2>
 
-        {status === 'error' ? (
-          <div className="mt-10 rounded-lg border border-red-900/60 bg-red-950/30 px-5 py-4">
-            <p className="text-sm font-medium text-red-300">
-              Could not load the feed
-            </p>
-            <p className="mt-1 font-mono text-xs text-red-400/80">{error}</p>
-          </div>
-        ) : null}
+              <div className="mt-2.5 flex items-baseline gap-3">
+                <span className="text-[13px] text-neutral-400">
+                  <span className="font-semibold text-cyan-400">
+                    {summary.topicsJudged}
+                  </span>{' '}
+                  judged
+                </span>
+                <span className="text-[13px] text-neutral-400">
+                  <span className="font-semibold text-cyan-400">
+                    {summary.published}
+                  </span>{' '}
+                  published
+                </span>
+                <span className="text-[13px] text-rose-300/60">
+                  <span className="font-semibold text-rose-400/90">
+                    {summary.rejected}
+                  </span>{' '}
+                  rejected
+                </span>
+              </div>
 
-        {status === 'ready' && posts.length > 0 ? (
-          <div className="mt-8 flex flex-wrap items-center gap-2">
-            {RANGES.map((option) => (
-              <button
-                key={option.key}
-                type="button"
-                onClick={() => setRange(option.key)}
-                aria-pressed={range === option.key}
-                className={`rounded-full border px-3.5 py-1.5 text-xs transition-colors ${
-                  range === option.key
-                    ? 'border-neutral-600 bg-neutral-800 text-neutral-100'
-                    : 'border-neutral-800 bg-neutral-900/40 text-neutral-500 hover:border-neutral-700 hover:text-neutral-300'
-                }`}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
-        ) : null}
+              {rejectionQuotes.length > 0 ? (
+                <ul className="mt-3 space-y-2.5 border-t border-neutral-800 pt-3">
+                  {rejectionQuotes.map((rejection, i) => (
+                    <li
+                      key={`${rejection.topic}-${i}`}
+                      className="border-l-2 border-rose-900/60 pl-2.5"
+                    >
+                      <p className="line-clamp-2 text-[11px] leading-4 text-neutral-400">
+                        {rejection.topic}
+                      </p>
+                      <p className="mt-1 line-clamp-3 text-[11px] italic leading-4 text-rose-300/50">
+                        “{rejection.reason}”
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </section>
+          ) : null}
 
-        {status === 'ready' && posts.length === 0 ? (
-          <div className="mt-10 rounded-lg border border-dashed border-neutral-800 px-5 py-12 text-center">
-            <p className="text-sm text-neutral-400">No posts yet</p>
-            <p className="mt-1 text-xs text-neutral-600">
-              The next publishing cycle will fill this in.
-            </p>
-          </div>
-        ) : null}
-
-        {status === 'ready' && posts.length > 0 && visiblePosts.length === 0 ? (
-          <div className="mt-8 rounded-lg border border-dashed border-neutral-800 px-5 py-12 text-center">
-            <p className="text-sm text-neutral-400">
-              Nothing published in this window
-            </p>
-            <p className="mt-1 text-xs text-neutral-600">
-              {posts.length} post{posts.length === 1 ? '' : 's'} in total — try
-              “All”.
-            </p>
-          </div>
-        ) : null}
-
-        {status === 'ready' && visiblePosts.length > 0 ? (
-          <ul className="mt-6 space-y-6">
-            {visiblePosts.map((post, index) => {
-              const isOpen = openRationale === post.id;
-
-              return (
-                <li
-                  key={post.id}
-                  className="rounded-xl border border-neutral-800 bg-neutral-900/40 p-6 transition-[transform,opacity,border-color,box-shadow] duration-500 ease-out hover:-translate-y-0.5 hover:border-neutral-700 hover:shadow-[0_0_0_1px_rgba(64,64,64,0.5),0_12px_32px_-12px_rgba(0,0,0,0.9)]"
-                  style={{
-                    opacity: entered ? 1 : 0,
-                    transform: entered ? 'translateY(0)' : 'translateY(12px)',
-                    // Cap the cascade so a long feed's last card isn't held
-                    // back for several seconds.
-                    transitionDelay: `${Math.min(index, 8) * 70}ms`,
-                  }}
+          {status === 'ready' && posts.length > 0 ? (
+            <div className="mt-5 flex flex-wrap gap-1.5">
+              {RANGES.map((option) => (
+                <button
+                  key={option.key}
+                  type="button"
+                  onClick={() => setRange(option.key)}
+                  aria-pressed={range === option.key}
+                  className={`rounded-full border px-2.5 py-1 text-[11px] transition-colors ${
+                    range === option.key
+                      ? 'border-cyan-800/80 bg-cyan-950/40 text-cyan-400'
+                      : 'border-neutral-800 bg-neutral-900/40 text-neutral-500 hover:border-neutral-700 hover:text-neutral-300'
+                  }`}
                 >
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <time
-                      dateTime={post.createdAt}
-                      className="font-mono text-[11px] uppercase tracking-wider text-neutral-500"
-                    >
-                      {formatDate(post.createdAt)}
-                    </time>
-                    {/* Unconditional by design: writePost throws on ungrounded
-                        output, so nothing reaches the posts table without
-                        having passed the grounding check. */}
-                    <span
-                      title="Every claim in this post was checked against the linked source before publishing"
-                      className="inline-flex items-center gap-1.5 rounded-full border border-emerald-900/60 bg-emerald-950/30 px-2.5 py-1 text-[10px] font-medium text-emerald-400/90"
-                    >
-                      ✓ Verified against source
-                    </span>
-                  </div>
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </aside>
 
-                  <p className="mt-3 whitespace-pre-wrap text-[15px] leading-7 text-neutral-100">
-                    {post.text}
-                  </p>
+        {/* ── Feed ────────────────────────────────────────────────── */}
+        <div className="min-w-0">
+          {status === 'loading' ? (
+            <div className="flex items-center gap-2.5 py-12 text-sm text-neutral-500">
+              <span
+                aria-hidden
+                className="h-3 w-3 animate-spin rounded-full border-2 border-neutral-700 border-t-cyan-400"
+              />
+              Loading feed…
+            </div>
+          ) : null}
 
-                  {post.rationale ? (
-                    <div className="mt-5 border-t border-neutral-800 pt-4">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setOpenRationale(isOpen ? null : post.id)
-                        }
-                        aria-expanded={isOpen}
-                        className="flex items-center text-xs font-medium text-neutral-400 transition-colors hover:text-neutral-200"
+          {status === 'error' ? (
+            <div className="rounded-lg border border-rose-900/60 bg-rose-950/30 px-4 py-3">
+              <p className="text-sm font-medium text-rose-300">
+                Could not load the feed
+              </p>
+              <p className="mt-1 font-mono text-xs text-rose-400/80">{error}</p>
+            </div>
+          ) : null}
+
+          {status === 'ready' && posts.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-neutral-800 px-4 py-10 text-center">
+              <p className="text-sm text-neutral-400">No posts yet</p>
+              <p className="mt-1 text-xs text-neutral-600">
+                The next publishing cycle will fill this in.
+              </p>
+            </div>
+          ) : null}
+
+          {status === 'ready' &&
+          posts.length > 0 &&
+          visiblePosts.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-neutral-800 px-4 py-10 text-center">
+              <p className="text-sm text-neutral-400">
+                Nothing published in this window
+              </p>
+              <p className="mt-1 text-xs text-neutral-600">
+                {posts.length} post{posts.length === 1 ? '' : 's'} in total — try
+                “All”.
+              </p>
+            </div>
+          ) : null}
+
+          {status === 'ready' && visiblePosts.length > 0 ? (
+            <ul className="space-y-3.5">
+              {visiblePosts.map((post, index) => {
+                const isOpen = openRationale === post.id;
+
+                return (
+                  <li
+                    key={post.id}
+                    className="rounded-lg border border-neutral-800 bg-neutral-900/40 p-4 transition-[transform,opacity,border-color,box-shadow] duration-500 ease-out hover:-translate-y-0.5 hover:border-neutral-700 hover:shadow-[0_0_0_1px_rgba(34,211,238,0.12),0_12px_32px_-12px_rgba(0,0,0,0.9)]"
+                    style={{
+                      opacity: entered ? 1 : 0,
+                      transform: entered ? 'translateY(0)' : 'translateY(12px)',
+                      // Cap the cascade so a long feed's last card isn't held
+                      // back for several seconds.
+                      transitionDelay: `${Math.min(index, 8) * 70}ms`,
+                    }}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <time
+                        dateTime={post.createdAt}
+                        className="font-mono text-[10px] uppercase tracking-wider text-neutral-500"
                       >
-                        <span
-                          aria-hidden
-                          className={`mr-1.5 inline-block transition-transform duration-300 ${
-                            isOpen ? 'rotate-90' : ''
+                        {formatDate(post.createdAt)}
+                      </time>
+                      {/* Unconditional by design: writePost throws on ungrounded
+                          output, so nothing reaches the posts table without
+                          having passed the grounding check. */}
+                      <span
+                        title="Every claim in this post was checked against the linked source before publishing"
+                        className="inline-flex items-center gap-1 rounded-full border border-cyan-900/60 bg-cyan-950/25 px-2 py-0.5 text-[10px] font-medium text-cyan-400/90"
+                      >
+                        <Check aria-hidden className="h-3 w-3" strokeWidth={3} />
+                        Verified against source
+                      </span>
+                    </div>
+
+                    <p className="mt-2.5 whitespace-pre-wrap text-[14px] leading-6 text-neutral-100">
+                      {post.text}
+                    </p>
+
+                    {post.rationale ? (
+                      <div className="mt-3.5 border-t border-neutral-800 pt-3">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setOpenRationale(isOpen ? null : post.id)
+                          }
+                          aria-expanded={isOpen}
+                          className="flex items-center gap-1 text-[11px] font-medium text-neutral-400 transition-colors hover:text-cyan-400"
+                        >
+                          <ChevronRight
+                            aria-hidden
+                            className={`h-3.5 w-3.5 transition-transform duration-300 ${
+                              isOpen ? 'rotate-90' : ''
+                            }`}
+                          />
+                          Why this post
+                        </button>
+                        <div
+                          className={`overflow-hidden transition-all duration-300 ease-out ${
+                            isOpen
+                              ? 'max-h-[500px] opacity-100'
+                              : 'max-h-0 opacity-0'
                           }`}
                         >
-                          ▸
-                        </span>
-                        Why this post
-                      </button>
-                      <div
-                        className={`overflow-hidden transition-all duration-300 ease-out ${
-                          isOpen
-                            ? 'max-h-[500px] opacity-100'
-                            : 'max-h-0 opacity-0'
-                        }`}
-                      >
-                        <p className="mt-3 border-l-2 border-neutral-800 pl-4 text-sm leading-6 text-neutral-400">
-                          {post.rationale}
-                        </p>
+                          <p className="mt-2.5 border-l-2 border-neutral-800 pl-3 text-[13px] leading-5 text-neutral-400">
+                            {post.rationale}
+                          </p>
+                        </div>
                       </div>
-                    </div>
-                  ) : null}
+                    ) : null}
 
-                  {post.sources.length > 0 ? (
-                    <div className="mt-5 flex flex-wrap gap-2">
-                      {post.sources.map((src) => (
-                        <a
-                          key={src}
-                          href={src}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          title={src}
-                          className="rounded-full border border-neutral-800 bg-neutral-900 px-3 py-1 font-mono text-[11px] text-neutral-400 transition-colors hover:border-neutral-600 hover:text-neutral-200"
-                        >
-                          {hostOf(src)} ↗
-                        </a>
-                      ))}
-                    </div>
-                  ) : null}
-                </li>
-              );
-            })}
-          </ul>
-        ) : null}
+                    {post.sources.length > 0 ? (
+                      <div className="mt-3.5 flex flex-wrap gap-1.5">
+                        {post.sources.map((src) => (
+                          <a
+                            key={src}
+                            href={src}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title={src}
+                            className="inline-flex items-center gap-1.5 rounded-full border border-neutral-800 bg-neutral-900 px-2.5 py-1 font-mono text-[10px] text-cyan-400/80 transition-colors hover:border-cyan-900 hover:text-cyan-300"
+                          >
+                            {hostOf(src)}
+                            <ExternalLink aria-hidden className="h-3 w-3" />
+                          </a>
+                        ))}
+                      </div>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+          ) : null}
+        </div>
       </div>
     </main>
   );
