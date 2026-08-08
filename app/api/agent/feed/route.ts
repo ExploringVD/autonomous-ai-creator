@@ -1,17 +1,22 @@
-import { NextResponse } from 'next/server';
 import { getAgent, getPostsForAgent } from '@/lib/db';
+import { corsJson, corsPreflight } from '@/lib/cors';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+/** Preflight, so browser-based API clients can call this cross-origin. */
+export async function OPTIONS() {
+  return corsPreflight();
+}
 
 export async function GET(request: Request) {
   try {
     const agentId = new URL(request.url).searchParams.get('agentId')?.trim();
 
     if (!agentId) {
-      return NextResponse.json(
+      return corsJson(
         { error: 'Missing required query parameter: agentId' },
-        { status: 400 }
+        400
       );
     }
 
@@ -25,13 +30,13 @@ export async function GET(request: Request) {
 
     const agent = isUuid ? await getAgent(agentId) : null;
     if (!agent) {
-      return NextResponse.json({ error: 'Agent not found' }, { status: 404 });
+      return corsJson({ error: 'Agent not found' }, 404);
     }
 
     // Already ordered newest-first by getPostsForAgent.
     const posts = await getPostsForAgent(agentId);
 
-    return NextResponse.json({
+    return corsJson({
       posts: posts.map((post) => ({
         id: post.id,
         createdAt: post.created_at.toISOString(),
@@ -42,9 +47,6 @@ export async function GET(request: Request) {
     });
   } catch (error) {
     console.error('GET /api/agent/feed failed:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    return corsJson({ error: 'Internal server error' }, 500);
   }
 }

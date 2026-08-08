@@ -6,6 +6,8 @@ import {
   Check,
   ChevronRight,
   ExternalLink,
+  Loader2,
+  Play,
   Terminal,
 } from 'lucide-react';
 
@@ -25,6 +27,24 @@ type JudgmentSummary = {
 };
 
 type Status = 'loading' | 'ready' | 'error';
+
+type ApiTestKey = 'init' | 'feed';
+
+type ApiTest = {
+  key: ApiTestKey;
+  state: 'loading' | 'done' | 'error';
+  status?: number;
+  body?: string;
+  error?: string;
+};
+
+/**
+ * The payload the init endpoint is actually called with — Rhea's real name and
+ * domain, matching the row this dashboard reads from.
+ */
+const INIT_PAYLOAD = {
+  persona: { name: 'Rhea Kapoor', domain: 'Applied AI Reliability' },
+};
 
 type RangeKey = 'all' | '6h' | 'today' | 'yesterday';
 
@@ -108,6 +128,7 @@ export default function FeedPage() {
   const [range, setRange] = useState<RangeKey>('all');
   const [openRationale, setOpenRationale] = useState<string | null>(null);
   const [entered, setEntered] = useState(false);
+  const [apiTest, setApiTest] = useState<ApiTest | null>(null);
 
   // Read from window rather than useSearchParams: this page is client-only, and
   // useSearchParams would force a Suspense boundary (and a second file).
@@ -180,6 +201,52 @@ export default function FeedPage() {
   const rejectionQuotes = (summary?.recentRejections ?? [])
     .filter((r) => r.reason)
     .slice(0, 2);
+
+  // The newest post overall, not the newest currently passing the filter —
+  // a "Latest" badge on something that isn't the latest would be a lie.
+  const latestPostId = posts[0]?.id;
+
+  const origin = typeof window === 'undefined' ? '' : window.location.origin;
+
+  const curlFor = (key: ApiTestKey) =>
+    key === 'init'
+      ? `curl -X POST ${origin}/api/agent/init \\\n  -H 'Content-Type: application/json' \\\n  -d '${JSON.stringify(INIT_PAYLOAD)}'`
+      : `curl '${origin}/api/agent/feed?agentId=${agentId}'`;
+
+  /** Fires the real endpoint — same origin, so this is the live deployment
+   *  once this page is deployed. Nothing here is stubbed. */
+  async function runApiTest(key: ApiTestKey) {
+    setApiTest({ key, state: 'loading' });
+
+    try {
+      const res =
+        key === 'init'
+          ? await fetch('/api/agent/init', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(INIT_PAYLOAD),
+            })
+          : await fetch(
+              `/api/agent/feed?agentId=${encodeURIComponent(agentId)}`
+            );
+
+      const raw = await res.text();
+      let body = raw;
+      try {
+        body = JSON.stringify(JSON.parse(raw), null, 2);
+      } catch {
+        // Not JSON (a proxy error page, say) — show it verbatim.
+      }
+
+      setApiTest({ key, state: 'done', status: res.status, body });
+    } catch (err) {
+      setApiTest({
+        key,
+        state: 'error',
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
 
   return (
     <main className="relative min-h-screen bg-neutral-950 text-neutral-200 antialiased">
@@ -351,6 +418,11 @@ export default function FeedPage() {
                 </span>
               </div>
 
+              <p className="mt-2 text-[11px] leading-4 text-neutral-500">
+                Most candidates fail verifiability or novelty. A high rejection
+                rate is the standard holding — not low output.
+              </p>
+
               {rejectionQuotes.length > 0 ? (
                 <ul className="mt-3 space-y-2.5 border-t border-neutral-800 pt-3">
                   {rejectionQuotes.map((rejection, i) => (
@@ -394,6 +466,102 @@ export default function FeedPage() {
 
         {/* ── Feed ────────────────────────────────────────────────── */}
         <div className="min-w-0">
+          {/* ── Live API tester ─────────────────────────────────────
+              Hits the real endpoints on this origin — which is the live
+              deployment once this page is deployed. No stubbed responses. */}
+          {agentId ? (
+            <section className="mb-3.5 rounded-lg border border-[#3d464d] bg-neutral-900/80 p-4">
+              <h2 className="font-mono text-[10px] uppercase tracking-wider text-neutral-500">
+                Live API tester
+              </h2>
+
+              <div className="mt-2.5 flex flex-wrap gap-2">
+                {(
+                  [
+                    { key: 'init', label: 'Test POST /api/agent/init' },
+                    { key: 'feed', label: 'Test GET /api/agent/feed' },
+                  ] as { key: ApiTestKey; label: string }[]
+                ).map((btn) => {
+                  const pending =
+                    apiTest?.key === btn.key && apiTest.state === 'loading';
+
+                  return (
+                    <button
+                      key={btn.key}
+                      type="button"
+                      onClick={() => runApiTest(btn.key)}
+                      disabled={apiTest?.state === 'loading'}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-cyan-800/70 bg-cyan-950/30 px-3 py-1.5 font-mono text-[11px] text-cyan-400 transition-colors hover:border-cyan-600 hover:bg-cyan-950/60 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {pending ? (
+                        <Loader2
+                          aria-hidden
+                          className="h-3 w-3 animate-spin"
+                        />
+                      ) : (
+                        <Play aria-hidden className="h-3 w-3" />
+                      )}
+                      {btn.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <p className="mt-2 text-[10px] leading-4 text-amber-500/70">
+                Requests hit the live endpoints — nothing here is stubbed. init
+                inserts a new agent row on every call, and the publishing cron
+                runs a cycle for every agent it finds.
+              </p>
+
+              {apiTest ? (
+                <div className="mt-3 border-t border-neutral-800 pt-3">
+                  <p className="font-mono text-[10px] uppercase tracking-wider text-neutral-500">
+                    Request
+                  </p>
+                  <pre className="mt-1.5 overflow-x-auto rounded-md border border-neutral-800 bg-neutral-950/70 p-2.5 font-mono text-[10px] leading-4 text-neutral-400">
+                    {curlFor(apiTest.key)}
+                  </pre>
+
+                  <div className="mt-3 flex items-center gap-2">
+                    <p className="font-mono text-[10px] uppercase tracking-wider text-neutral-500">
+                      Response
+                    </p>
+                    {apiTest.state === 'done' ? (
+                      <span
+                        className={`rounded-full px-1.5 py-0.5 font-mono text-[9px] ${
+                          apiTest.status && apiTest.status < 400
+                            ? 'bg-cyan-950/60 text-cyan-400'
+                            : 'bg-rose-950/50 text-rose-300'
+                        }`}
+                      >
+                        {apiTest.status}
+                      </span>
+                    ) : null}
+                  </div>
+
+                  {apiTest.state === 'loading' ? (
+                    <p className="mt-1.5 flex items-center gap-2 font-mono text-[11px] text-neutral-500">
+                      <Loader2 aria-hidden className="h-3 w-3 animate-spin" />
+                      Waiting for response…
+                    </p>
+                  ) : null}
+
+                  {apiTest.state === 'error' ? (
+                    <pre className="mt-1.5 overflow-x-auto rounded-md border border-rose-900/60 bg-rose-950/25 p-2.5 font-mono text-[10px] leading-4 text-rose-300">
+                      Request failed: {apiTest.error}
+                    </pre>
+                  ) : null}
+
+                  {apiTest.state === 'done' ? (
+                    <pre className="mt-1.5 max-h-72 overflow-auto whitespace-pre-wrap break-all rounded-md border border-neutral-800 bg-neutral-950/70 p-2.5 font-mono text-[10px] leading-4 text-neutral-300">
+                      {apiTest.body}
+                    </pre>
+                  ) : null}
+                </div>
+              ) : null}
+            </section>
+          ) : null}
+
           {status === 'loading' ? (
             <div className="flex items-center gap-2.5 py-12 text-sm text-neutral-500">
               <span
@@ -440,16 +608,21 @@ export default function FeedPage() {
             <ul className="space-y-3.5">
               {visiblePosts.map((post, index) => {
                 const isOpen = openRationale === post.id;
+                const isLatest = post.id === latestPostId;
 
                 return (
                   <li
                     key={post.id}
-                    // Border is a cool mid-gray, not near-black: it has to
-                    // delineate the card against the background at rest, with
-                    // hover only intensifying what is already visible.
-                    // /80 rather than /40: against the denser starfield a
-                    // 40%-opaque card let stars read through the body text.
-                    className="rounded-lg border border-[#3d464d] bg-neutral-900/80 p-4 transition-[transform,opacity,border-color,box-shadow] duration-500 ease-out hover:-translate-y-0.5 hover:border-cyan-700/60 hover:shadow-[0_0_0_1px_rgba(34,211,238,0.14),0_12px_32px_-12px_rgba(0,0,0,0.9)]"
+                    // Exactly two border treatments, no third case: the newest
+                    // post gets the accent, every other card gets the same
+                    // cool mid-gray. /80 background rather than /40 — against
+                    // the starfield a 40%-opaque card let stars read through
+                    // the body text.
+                    className={`rounded-lg border bg-neutral-900/80 p-4 transition-[transform,opacity,border-color,box-shadow] duration-500 ease-out hover:-translate-y-0.5 hover:border-cyan-700/60 hover:shadow-[0_0_0_1px_rgba(34,211,238,0.14),0_12px_32px_-12px_rgba(0,0,0,0.9)] ${
+                      isLatest
+                        ? 'border-cyan-600/70 shadow-[0_0_0_1px_rgba(34,211,238,0.10),0_0_28px_-14px_rgba(34,211,238,0.7)]'
+                        : 'border-[#3d464d]'
+                    }`}
                     style={{
                       opacity: entered ? 1 : 0,
                       transform: entered ? 'translateY(0)' : 'translateY(12px)',
@@ -459,12 +632,19 @@ export default function FeedPage() {
                     }}
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <time
-                        dateTime={post.createdAt}
-                        className="font-mono text-[10px] uppercase tracking-wider text-neutral-500"
-                      >
-                        {formatDate(post.createdAt)}
-                      </time>
+                      <div className="flex items-center gap-2">
+                        <time
+                          dateTime={post.createdAt}
+                          className="font-mono text-[10px] uppercase tracking-wider text-neutral-500"
+                        >
+                          {formatDate(post.createdAt)}
+                        </time>
+                        {isLatest ? (
+                          <span className="rounded-full border border-cyan-700/70 bg-cyan-950/50 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-cyan-400">
+                            Latest
+                          </span>
+                        ) : null}
+                      </div>
                       {/* Unconditional by design: writePost throws on ungrounded
                           output, so nothing reaches the posts table without
                           having passed the grounding check. */}
