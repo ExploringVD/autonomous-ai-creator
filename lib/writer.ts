@@ -2,10 +2,11 @@ import Groq from 'groq-sdk';
 import { z } from 'zod';
 import type { DiscoveredTopic } from '@/lib/discovery';
 
-// Was openai/gpt-oss-120b, which exhausted its 200k free-tier daily token
-// budget. This model has a separate budget and already backs judgment and the
-// grounding check.
-const MODEL = 'llama-3.3-70b-versatile';
+// Better prose than llama-3.3-70b-versatile, which was a temporary fallback
+// while this model's 200k free-tier daily token budget was exhausted. Judgment
+// and the grounding check stay on the 70B model, so they draw on a separate
+// budget and a heavy cycle doesn't contend with itself.
+const MODEL = 'openai/gpt-oss-120b';
 
 // Generative writing, unlike judgment's 0.2 — this needs room to phrase things.
 const TEMPERATURE = 0.7;
