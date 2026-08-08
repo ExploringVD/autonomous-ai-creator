@@ -266,6 +266,110 @@ export function findFabricatedSpecifics(
   });
 }
 
+/**
+ * Cheap classifier for the grounding pass. This is a judgement task over two
+ * short texts, so the 120B writer model would be wasted tokens against a tight
+ * per-minute budget.
+ */
+const GROUNDING_MODEL = 'llama-3.1-8b-instant';
+
+const GROUNDING_PROMPT = `You are a fact-grounding checker. You are given a SOURCE and a DRAFT post written from it.
+
+Your job: identify every specific claim in DRAFT that is not explicitly stated in SOURCE, and is
+not a close paraphrase of something in SOURCE.
+
+This explicitly includes, and is not limited to:
+- invented numbers, percentages, thresholds, or magnitudes (including ones spelled out as words,
+  e.g. "twelve percent", "a hundred thousand")
+- invented named systems, tools, services, companies, or metric names
+- invented MECHANISMS, CAUSES, or DESCRIPTIONS stated in plain lowercase prose. This is the most
+  commonly missed category. A sentence like "the drop aligns with the attention budget stretching
+  thin" or "the layer injects a thin observability shim" contains no numbers and no proper nouns,
+  but it asserts a mechanism the SOURCE never states. Flag it.
+- invented recommendations or remedies presented as following from the source
+
+Do NOT flag:
+- restatements or paraphrases of what SOURCE does say
+- generic commentary that asserts no new specific fact about the subject
+- the author's editorial opinion about why the topic matters
+
+Be strict. If SOURCE does not contain the information, the claim is unsupported, however plausible
+or conventional it sounds.
+
+Output STRICT JSON, nothing else — no markdown fences, no prose:
+{"grounded": true|false, "unsupportedClaims": ["...", "..."]}
+
+"grounded" is true only when unsupportedClaims is empty.`;
+
+export type GroundingResult = {
+  grounded: boolean;
+  unsupportedClaims: string[];
+};
+
+const groundingSchema = z.object({
+  grounded: z.boolean(),
+  unsupportedClaims: z.array(z.string()),
+});
+
+/**
+ * Ask the model which claims in `draft` are unsupported by `sourceText`.
+ *
+ * Returns null when the check itself could not be completed (API error,
+ * unparseable response). Callers must treat null as "not verified" rather than
+ * "verified" — this is a correctness gate.
+ */
+export async function checkGrounding(
+  client: Groq,
+  draft: string,
+  sourceText: string
+): Promise<GroundingResult | null> {
+  let raw: string;
+  try {
+    const completion = await client.chat.completions.create({
+      model: GROUNDING_MODEL,
+      temperature: 0,
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: GROUNDING_PROMPT },
+        {
+          role: 'user',
+          content: `SOURCE:\n${sourceText}\n\nDRAFT:\n${draft}`,
+        },
+      ],
+    });
+    raw = completion.choices[0]?.message?.content ?? '';
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('checkGrounding: Groq request failed:', message);
+    return null;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stripFences(raw));
+  } catch {
+    console.error('checkGrounding: response was not valid JSON');
+    return null;
+  }
+
+  const validated = groundingSchema.safeParse(parsed);
+  if (!validated.success) {
+    console.error(
+      'checkGrounding: response failed schema validation:',
+      validated.error.flatten()
+    );
+    return null;
+  }
+
+  // Trust the list over the flag: a model that lists claims but sets
+  // grounded:true is still reporting unsupported content.
+  const { unsupportedClaims } = validated.data;
+  return {
+    grounded: validated.data.grounded && unsupportedClaims.length === 0,
+    unsupportedClaims,
+  };
+}
+
 function fabricationRetryInstruction(terms: string[]): string {
   return `\n\nYour previous response contained specifics that do not appear in the given title, snippet, or judgment reason: ${terms
     .map((t) => `"${t}"`)
@@ -339,9 +443,12 @@ async function requestPost(
  *
  * Two post-generation checks, with deliberately different severities:
  *
- * - Fabrication (hard): any number, acronym or proper noun asserted in the post
- *   but absent from title/snippet/judgmentReason triggers one corrective retry,
- *   then throws. A post with invented facts is never returned.
+ * - Grounding (hard): a regex scan for unverified numbers/proper nouns acts as a
+ *   fast pre-filter, then an LLM grounding call decides pass/fail — it is the
+ *   authoritative gate, and catches invented mechanisms written in plain prose
+ *   that the regex cannot see. Either one firing triggers one corrective retry
+ *   naming the offending claims, then throws. A post with unsupported claims is
+ *   never returned, and neither is one that could not be checked.
  * - Length (soft): a post outside the accepted band is retried once, but if the
  *   retry still misses it is returned with a warning.
  */
@@ -409,18 +516,37 @@ export async function writePost(
       rationale: normalizeWhitespace(validated.data.rationale),
     };
 
-    // Fabrication is checked before length, and is never tolerated: a post with
-    // invented specifics must not reach the caller even once.
+    // Grounding is checked before length, and is never tolerated: a post with
+    // invented content must not reach the caller even once. The regex scan is
+    // only a fast pre-filter — when it already has a hit, skip the second API
+    // call and go straight to the corrective retry.
     const fabricated = findFabricatedSpecifics(post.text, sourceText);
+    let unsupported: string[] | null = null;
+
     if (fabricated.length > 0) {
-      lastProblem = `fabricated specifics: ${fabricated.join(', ')}`;
-      if (attempt === 0) {
+      unsupported = fabricated;
+      console.warn(
+        `writePost: regex pre-check flagged specifics absent from the source (${fabricated.join(
+          ', '
+        )}); skipping grounding call`
+      );
+    } else {
+      const grounding = await checkGrounding(client, post.text, sourceText);
+      if (grounding === null) {
+        // Could not verify. Fail closed rather than publish unchecked text.
+        unsupported = ['(grounding check unavailable)'];
+      } else if (!grounding.grounded) {
+        unsupported = grounding.unsupportedClaims;
         console.warn(
-          `writePost: response contained specifics absent from the source (${fabricated.join(
-            ', '
-          )}); retrying once`
+          `writePost: grounding check found ${unsupported.length} unsupported claim(s)`
         );
-        extraInstruction = fabricationRetryInstruction(fabricated);
+      }
+    }
+
+    if (unsupported !== null) {
+      lastProblem = `unsupported claims: ${unsupported.join(' | ')}`;
+      if (attempt === 0) {
+        extraInstruction = fabricationRetryInstruction(unsupported);
         // Deliberately not kept as a fallback — an unsupported post is worse
         // than no post.
         outOfRangePost = null;
@@ -428,8 +554,8 @@ export async function writePost(
       }
 
       throw new Error(
-        `writePost: retry still contained specifics absent from the source: ${fabricated.join(
-          ', '
+        `writePost: retry still contained unsupported claims: ${unsupported.join(
+          ' | '
         )}`
       );
     }
