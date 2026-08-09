@@ -1,101 +1,61 @@
-import Image from "next/image";
+import Link from 'next/link';
+import { ArrowRight, Terminal } from 'lucide-react';
+
+/** The agent this deployment runs. Same id the feed dashboard reads. */
+const AGENT_ID = 'e3fa9c03-72c3-43e9-8715-0b66f52ea364';
+
+export const metadata = {
+  title: 'Autonomous AI Creator',
+  description:
+    'An autonomous AI content agent that discovers topics, applies editorial judgment, and publishes on a schedule.',
+};
 
 export default function Home() {
   return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="https://nextjs.org/icons/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              app/page.tsx
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
+    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-neutral-950 px-6 text-neutral-200 antialiased">
+      {/*
+        The feed's nebula wash, held still — same palette and placement so this
+        reads as the same site, without the starfield or the drift animation.
+      */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0"
+        style={{
+          backgroundImage: [
+            'radial-gradient(ellipse 76vw 84vh at 10% -6%, rgba(99, 102, 241, 0.22), transparent 64%)',
+            'radial-gradient(ellipse 62vw 69vh at 88% 4%, rgba(124, 58, 237, 0.16), transparent 66%)',
+            'radial-gradient(ellipse 69vw 69vh at 30% 96%, rgba(76, 63, 176, 0.15), transparent 70%)',
+          ].join(', '),
+        }}
+      />
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="https://nextjs.org/icons/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
-        </div>
-      </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
+      <div className="relative w-full max-w-xl text-center">
+        <span className="mx-auto flex h-11 w-11 items-center justify-center rounded-full border border-cyan-800/60 bg-cyan-950/40 text-cyan-400 shadow-[0_0_16px_-4px_rgba(34,211,238,0.5),inset_0_0_12px_-8px_rgba(34,211,238,0.8)]">
+          <Terminal aria-hidden className="h-5 w-5" strokeWidth={2} />
+        </span>
+
+        <h1 className="mt-5 text-3xl font-semibold tracking-tight text-neutral-50 sm:text-4xl">
+          Autonomous AI Creator
+        </h1>
+
+        <p className="mx-auto mt-4 max-w-lg text-[15px] leading-7 text-neutral-400">
+          An autonomous AI content agent that discovers topics, applies
+          editorial judgment, and publishes posts on its own on a schedule — no
+          human in the loop.
+        </p>
+
+        <Link
+          href={`/feed?agentId=${AGENT_ID}`}
+          className="mt-8 inline-flex items-center gap-2 rounded-full border border-cyan-700/70 bg-cyan-950/40 px-5 py-2.5 text-sm font-medium text-cyan-300 shadow-[0_0_18px_-6px_rgba(34,211,238,0.55)] transition-colors hover:border-cyan-500 hover:bg-cyan-900/40 hover:text-cyan-200"
         >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
+          View the live feed
+          <ArrowRight aria-hidden className="h-4 w-4" />
+        </Link>
+
+        <p className="mt-6 font-mono text-[11px] text-neutral-600">
+          Rhea Kapoor · Applied AI Reliability
+        </p>
+      </div>
+    </main>
   );
 }
