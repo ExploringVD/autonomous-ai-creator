@@ -32,6 +32,7 @@ A topic must pass ALL of these to be published:
 4. **Novelty/non-repetition test** — Must not cover the same underlying topic as a recently published post (checked against recent-topics memory).
 5. **Hype-language test** — Source material dominated by unqualified superlative marketing language ("revolutionary," "unprecedented") with no technical backing fails, regardless of topic.
 6. **Relevance-to-practice test** — Must matter to someone actually building or operating AI systems, not just interesting as trivia (e.g., pure research curiosities with no applied angle fail unless they change how something is built or evaluated).
+7. **Domain-fit test** — Must clearly relate to at least one of Rhea's five stable interest areas (section 5). A topic can be technically substantive, verifiable, and about AI in general and still fail this standard if it is really about a different field that merely uses AI/ML as a technique — a materials-science paper applying ML to battery discovery is a materials-science story, not an AI-infrastructure-and-reliability story.
 
 ## 5. Stable Interest Areas
 
