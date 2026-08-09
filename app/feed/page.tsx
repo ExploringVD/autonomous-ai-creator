@@ -20,11 +20,19 @@ type Post = {
   sources: string[];
 };
 
+type JudgmentRecord = {
+  topic: string;
+  decision: 'published' | 'rejected';
+  reason: string | null;
+  createdAt: string;
+};
+
 type JudgmentSummary = {
   topicsJudged: number;
   published: number;
   rejected: number;
   recentRejections: { topic: string; reason: string | null }[];
+  allJudgments?: JudgmentRecord[];
 };
 
 type Status = 'loading' | 'ready' | 'error';
@@ -137,6 +145,7 @@ export default function FeedPage() {
     judgment: false,
     tester: false,
   });
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [shownCards, setShownCards] = useState<Set<string>>(new Set());
   const feedListRef = useRef<HTMLUListElement>(null);
 
@@ -524,6 +533,76 @@ export default function FeedPage() {
                       </li>
                     ))}
                   </ul>
+                ) : null}
+
+                {summary.allJudgments && summary.allJudgments.length > 0 ? (
+                  <div className="mt-3 border-t border-neutral-800 pt-3">
+                    <button
+                      type="button"
+                      onClick={() => setHistoryOpen((open) => !open)}
+                      aria-expanded={historyOpen}
+                      className="flex w-full items-center justify-between gap-2 text-left text-[11px] text-neutral-400 transition-colors hover:text-cyan-400"
+                    >
+                      <span>
+                        View full judgment history (
+                        {summary.allJudgments.length})
+                      </span>
+                      <ChevronDown
+                        aria-hidden
+                        className={`h-3.5 w-3.5 shrink-0 transition-transform duration-300 ${
+                          historyOpen ? 'rotate-180' : ''
+                        }`}
+                      />
+                    </button>
+
+                    {historyOpen ? (
+                      // Fixed height with its own scrollbar: the list runs to
+                      // hundreds of rows, and the sidebar is sticky on desktop,
+                      // so it must never grow the page.
+                      <ul className="mt-2.5 max-h-80 space-y-2.5 overflow-y-auto pr-1">
+                        {summary.allJudgments.map((entry, i) => {
+                          const isPublished = entry.decision === 'published';
+
+                          return (
+                            <li
+                              key={`${entry.createdAt}-${i}`}
+                              className={`border-l-2 pl-2.5 ${
+                                isPublished
+                                  ? 'border-cyan-800/70'
+                                  : 'border-rose-900/60'
+                              }`}
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <p className="text-[11px] leading-4 text-neutral-400">
+                                  {entry.topic}
+                                </p>
+                                <span
+                                  className={`shrink-0 rounded-full px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider ${
+                                    isPublished
+                                      ? 'bg-cyan-950/60 text-cyan-400'
+                                      : 'bg-rose-950/50 text-rose-400/90'
+                                  }`}
+                                >
+                                  {entry.decision}
+                                </span>
+                              </div>
+                              {entry.reason ? (
+                                <p
+                                  className={`mt-1 text-[11px] italic leading-4 ${
+                                    isPublished
+                                      ? 'text-cyan-300/45'
+                                      : 'text-rose-300/50'
+                                  }`}
+                                >
+                                  “{entry.reason}”
+                                </p>
+                              ) : null}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    ) : null}
+                  </div>
                 ) : null}
               </div>
             </section>

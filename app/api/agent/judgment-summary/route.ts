@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getJudgmentSummary } from '@/lib/db';
+import { getAllJudgments, getJudgmentSummary } from '@/lib/db';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -33,10 +33,17 @@ export async function GET(request: Request) {
         published: 0,
         rejected: 0,
         recentRejections: [],
+        allJudgments: [],
       });
     }
 
-    return NextResponse.json(await getJudgmentSummary(agentId));
+    // Additive: allJudgments joins the existing fields, none of which change.
+    const [summary, allJudgments] = await Promise.all([
+      getJudgmentSummary(agentId),
+      getAllJudgments(agentId),
+    ]);
+
+    return NextResponse.json({ ...summary, allJudgments });
   } catch (error) {
     console.error('GET /api/agent/judgment-summary failed:', error);
     return NextResponse.json(

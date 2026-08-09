@@ -139,6 +139,47 @@ export async function logTopicDecision(input: {
   return rows[0];
 }
 
+export type JudgmentRecord = {
+  topic: string;
+  decision: TopicDecision;
+  reason: string | null;
+  createdAt: string;
+};
+
+/**
+ * Every decision logged for one agent, newest first — the full audit trail
+ * behind the summary counts.
+ *
+ * Capped rather than unbounded: the whole list is serialised into the feed
+ * page's initial fetch, so an agent running for months should not turn that
+ * into a multi-megabyte response.
+ */
+export async function getAllJudgments(
+  agentId: string,
+  limit = 200
+): Promise<JudgmentRecord[]> {
+  const rows = await query<{
+    topic: string;
+    decision: TopicDecision;
+    reason: string | null;
+    created_at: Date;
+  }>(
+    `SELECT topic, decision, reason, created_at
+     FROM topic_log
+     WHERE agent_id = $1
+     ORDER BY created_at DESC
+     LIMIT $2`,
+    [agentId, limit]
+  );
+
+  return rows.map((row) => ({
+    topic: row.topic,
+    decision: row.decision,
+    reason: row.reason,
+    createdAt: row.created_at.toISOString(),
+  }));
+}
+
 export type JudgmentSummary = {
   topicsJudged: number;
   published: number;
