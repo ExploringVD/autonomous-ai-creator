@@ -4,7 +4,7 @@ import {
   logTopicDecision,
 } from '@/lib/db';
 import { titleMatchKey, type DiscoveredTopic } from '@/lib/discovery';
-import { judgeTopic, type TopicJudgment } from '@/lib/judgment';
+import { JudgmentError, judgeTopic, type TopicJudgment } from '@/lib/judgment';
 
 /**
  * How many previously published topics to show the judgment call. The novelty
@@ -22,6 +22,12 @@ export type JudgeCycleResult = {
   duplicatesSkipped: number;
   /** Candidates actually sent to the model. */
   sentToJudgment: number;
+  /**
+   * Set when the model call failed. Returned rather than thrown so the caller
+   * still gets the counts above: the duplicate rows are already written to
+   * topic_log by that point, and a throw would report them as zero.
+   */
+  error?: JudgmentError;
 };
 
 /**
@@ -80,11 +86,23 @@ export async function judgeTopicsForAgent(
 
   const recentTopics = await getRecentPostTopics(agentId, RECENT_TOPICS_LIMIT);
 
-  return {
-    judgments: await judgeTopic(fresh, recentTopics),
-    duplicatesSkipped: duplicates.length,
-    sentToJudgment: fresh.length,
-  };
+  try {
+    return {
+      judgments: await judgeTopic(fresh, recentTopics),
+      duplicatesSkipped: duplicates.length,
+      sentToJudgment: fresh.length,
+    };
+  } catch (error) {
+    if (error instanceof JudgmentError) {
+      return {
+        judgments: [],
+        duplicatesSkipped: duplicates.length,
+        sentToJudgment: fresh.length,
+        error,
+      };
+    }
+    throw error;
+  }
 }
 
 /**

@@ -117,6 +117,13 @@ export async function POST(request: Request) {
         summary.sentToJudgment = judged.sentToJudgment;
         summary.topicsJudged = judgments.length;
 
+        // Reported rather than thrown, so the duplicate counts above survive.
+        if (judged.error) {
+          summary.errors.push(
+            `judgment failed (${judged.error.cause}): ${judged.error.message}`
+          );
+        }
+
         // Judgment's own rejections are final, so log them straight away.
         await logJudgmentRejections(agent.id, judgments);
 
