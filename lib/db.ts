@@ -139,6 +139,21 @@ export async function logTopicDecision(input: {
   return rows[0];
 }
 
+/**
+ * Every distinct topic this agent has already judged, in any direction.
+ *
+ * Feeds the pre-judgment duplicate check: a candidate matching one of these
+ * has already been ruled on, so re-sending it to the model spends tokens to
+ * reach the same answer.
+ */
+export async function getJudgedTopics(agentId: string): Promise<string[]> {
+  const rows = await query<{ topic: string }>(
+    `SELECT DISTINCT topic FROM topic_log WHERE agent_id = $1`,
+    [agentId]
+  );
+  return rows.map((row) => row.topic);
+}
+
 export type JudgmentRecord = {
   topic: string;
   decision: TopicDecision;

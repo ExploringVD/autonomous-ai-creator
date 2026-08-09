@@ -5,6 +5,80 @@ const NEWSAPI_ENDPOINT = 'https://newsapi.org/v2/everything';
 const REQUEST_TIMEOUT_MS = 10_000;
 const MAX_RESULTS = 8;
 
+/**
+ * Merged pool handed to judgment. Larger than one query's worth so several
+ * interest areas are represented, but capped: every candidate costs judgment
+ * tokens, and the daily Groq budget is the binding constraint.
+ */
+const MERGED_MAX_RESULTS = 18;
+
+/**
+ * Queries run per cycle, drawn from INTEREST_AREA_QUERIES on rotation.
+ *
+ * NewsAPI's free tier allows 100 requests/day. At 3 per cycle and the cron's
+ * 2-hourly schedule that is 36/day, leaving room for manual runs. Raising this
+ * to all five areas every cycle would be 60/day, which is under the cap but
+ * leaves little slack — and rotating is better anyway, because asking for
+ * different areas on different cycles is what surfaces stories a fixed query
+ * keeps missing.
+ */
+const QUERIES_PER_CYCLE = 3;
+
+const AI_ANCHOR =
+  '("artificial intelligence" OR "machine learning" OR AI OR LLM OR "language model")';
+
+/**
+ * One query per interest area from lib/persona.ts.
+ *
+ * These are hand-written rather than derived from the prose interest areas.
+ * The derived route (buildQuery) ORs every area's terms into a single query,
+ * which returns the same broad head of the AI news feed every cycle — the
+ * reason discovery kept resurfacing the same dozen stories. Narrower, separate
+ * queries reach further down into each area.
+ */
+const INTEREST_AREA_QUERIES: { area: string; q: string }[] = [
+  {
+    area: 'evaluation',
+    q: `${AI_ANCHOR} AND (benchmark OR benchmarking OR "model evaluation" OR "eval harness" OR leaderboard OR "evaluation methodology" OR "held-out")`,
+  },
+  {
+    area: 'incidents',
+    q: `${AI_ANCHOR} AND (postmortem OR "post-mortem" OR outage OR incident OR "model drift" OR "data drift" OR regression OR degradation)`,
+  },
+  {
+    area: 'inference',
+    q: `${AI_ANCHOR} AND (inference OR latency OR throughput OR quantization OR serving OR "inference cost" OR "GPU cost")`,
+  },
+  {
+    area: 'open-weights',
+    q: `${AI_ANCHOR} AND ("open weight" OR "open-weight" OR "open source model" OR "model release" OR checkpoint OR reproducibility)`,
+  },
+  {
+    area: 'agentic',
+    q: `${AI_ANCHOR} AND (agentic OR "AI agent" OR "tool use" OR autonomy OR "agent failure" OR orchestration)`,
+  },
+];
+
+/**
+ * Pick this cycle's queries, advancing the window every two hours so
+ * consecutive cron runs ask about different areas.
+ *
+ * Time-derived rather than stored: it needs no schema change, and the cron's
+ * own cadence supplies the tick.
+ */
+export function queriesForCycle(
+  now: number = Date.now()
+): { area: string; q: string }[] {
+  const total = INTEREST_AREA_QUERIES.length;
+  const tick = Math.floor(now / (2 * 60 * 60 * 1000));
+  const offset = ((tick % total) + total) % total;
+
+  return Array.from(
+    { length: Math.min(QUERIES_PER_CYCLE, total) },
+    (_, i) => INTEREST_AREA_QUERIES[(offset + i) % total]
+  );
+}
+
 /** NewsAPI rejects `q` longer than 500 characters. */
 const MAX_QUERY_LENGTH = 500;
 
@@ -185,7 +259,19 @@ function titleKey(title: string): string {
     .trim();
 }
 
-function normalize(articles: NewsApiArticle[]): DiscoveredTopic[] {
+/**
+ * Title reduced to a comparison key. Exported so the pipeline can match
+ * candidates against already-judged topics using exactly the same notion of
+ * "the same story" that discovery uses to dedupe.
+ */
+export function titleMatchKey(title: string): string {
+  return titleKey(title);
+}
+
+function normalize(
+  articles: NewsApiArticle[],
+  limit: number = MAX_RESULTS
+): DiscoveredTopic[] {
   const seenUrls = new Set<string>();
   const seenTitles = new Set<string>();
   const topics: DiscoveredTopic[] = [];
@@ -210,7 +296,7 @@ function normalize(articles: NewsApiArticle[]): DiscoveredTopic[] {
       snippet: buildSnippet(article),
     });
 
-    if (topics.length >= MAX_RESULTS) break;
+    if (topics.length >= limit) break;
   }
 
   return topics;
@@ -222,20 +308,15 @@ function normalize(articles: NewsApiArticle[]): DiscoveredTopic[] {
  * Never throws. A failed discovery cycle returns [] so the pipeline can skip
  * the run instead of crashing.
  */
-export async function discoverTopics(
-  domain: string
-): Promise<DiscoveredTopic[]> {
-  const apiKey = process.env.NEWSAPI_KEY;
-
-  if (!apiKey) {
-    console.error('discoverTopics: NEWSAPI_KEY is not set');
-    return [];
-  }
-
+async function fetchArticles(
+  apiKey: string,
+  q: string,
+  label: string
+): Promise<NewsApiArticle[]> {
   try {
     const response = await axios.get<NewsApiResponse>(NEWSAPI_ENDPOINT, {
       params: {
-        q: buildQuery(domain),
+        q,
         sortBy: 'publishedAt',
         language: 'en',
         // Without this NewsAPI matches full body text, which surfaces package
@@ -252,7 +333,7 @@ export async function discoverTopics(
 
     if (response.status !== 200) {
       console.error(
-        `discoverTopics: NewsAPI returned ${response.status}`,
+        `discoverTopics[${label}]: NewsAPI returned ${response.status}`,
         response.data
       );
       return [];
@@ -260,14 +341,59 @@ export async function discoverTopics(
 
     const articles = response.data?.articles;
     if (!Array.isArray(articles)) {
-      console.error('discoverTopics: unexpected NewsAPI payload shape');
+      console.error(
+        `discoverTopics[${label}]: unexpected NewsAPI payload shape`
+      );
       return [];
     }
 
-    return normalize(articles);
+    return articles;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    console.error('discoverTopics: NewsAPI request failed:', message);
+    console.error(
+      `discoverTopics[${label}]: NewsAPI request failed:`,
+      message
+    );
     return [];
   }
+}
+
+/**
+ * Fetch recent articles across a rotating subset of the persona's interest
+ * areas, plus the caller's own domain.
+ *
+ * Never throws. One query failing costs only that query's results — the rest
+ * of the cycle still runs — and a total failure returns [].
+ */
+export async function discoverTopics(
+  domain: string
+): Promise<DiscoveredTopic[]> {
+  const apiKey = process.env.NEWSAPI_KEY;
+
+  if (!apiKey) {
+    console.error('discoverTopics: NEWSAPI_KEY is not set');
+    return [];
+  }
+
+  const queries = [
+    ...queriesForCycle(),
+    { area: 'domain', q: buildQuery(domain) },
+  ];
+
+  const results = await Promise.all(
+    queries.map(({ area, q }) => fetchArticles(apiKey, q, area))
+  );
+
+  // Interleave rather than concatenate: taken in order, the first query's
+  // results would fill the cap before any later area was reached.
+  const merged: NewsApiArticle[] = [];
+  const longest = Math.max(0, ...results.map((r) => r.length));
+  for (let i = 0; i < longest; i += 1) {
+    for (const result of results) {
+      if (i < result.length) merged.push(result[i]);
+    }
+  }
+
+  // normalize dedupes by url and by title key across the merged pool.
+  return normalize(merged, MERGED_MAX_RESULTS);
 }

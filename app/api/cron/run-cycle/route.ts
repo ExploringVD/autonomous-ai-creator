@@ -52,6 +52,8 @@ type AgentSummary = {
   name: string;
   domain: string;
   candidatesDiscovered: number;
+  duplicatesSkipped: number;
+  sentToJudgment: number;
   topicsJudged: number;
   approved: number;
   attempted: number;
@@ -93,6 +95,8 @@ export async function POST(request: Request) {
         name: agent.name,
         domain: agent.domain,
         candidatesDiscovered: 0,
+        duplicatesSkipped: 0,
+        sentToJudgment: 0,
         topicsJudged: 0,
         approved: 0,
         attempted: 0,
@@ -107,7 +111,10 @@ export async function POST(request: Request) {
         const candidates = await discoverTopics(agent.domain);
         summary.candidatesDiscovered = candidates.length;
 
-        const judgments = await judgeTopicsForAgent(agent.id, candidates);
+        const judged = await judgeTopicsForAgent(agent.id, candidates);
+        const judgments = judged.judgments;
+        summary.duplicatesSkipped = judged.duplicatesSkipped;
+        summary.sentToJudgment = judged.sentToJudgment;
         summary.topicsJudged = judgments.length;
 
         // Judgment's own rejections are final, so log them straight away.
@@ -193,6 +200,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       agentsProcessed: summaries.length,
       agentsSkippedByAllowlist: allAgents.length - agents.length,
+      duplicatesSkipped: summaries.reduce((n, s) => n + s.duplicatesSkipped, 0),
       topicsJudged: summaries.reduce((n, s) => n + s.topicsJudged, 0),
       postsPublished: summaries.reduce((n, s) => n + s.published, 0),
       postsFailed: summaries.reduce((n, s) => n + s.failed, 0),

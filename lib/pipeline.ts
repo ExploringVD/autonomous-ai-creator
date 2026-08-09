@@ -1,5 +1,9 @@
-import { getRecentPostTopics, logTopicDecision } from '@/lib/db';
-import type { DiscoveredTopic } from '@/lib/discovery';
+import {
+  getJudgedTopics,
+  getRecentPostTopics,
+  logTopicDecision,
+} from '@/lib/db';
+import { titleMatchKey, type DiscoveredTopic } from '@/lib/discovery';
 import { judgeTopic, type TopicJudgment } from '@/lib/judgment';
 
 /**
@@ -8,6 +12,18 @@ import { judgeTopic, type TopicJudgment } from '@/lib/judgment';
  */
 export const RECENT_TOPICS_LIMIT = 10;
 
+/** Reason recorded for candidates skipped by the pre-judgment duplicate check. */
+export const DUPLICATE_REASON =
+  'duplicate candidate — already judged, skipped re-evaluation';
+
+export type JudgeCycleResult = {
+  judgments: TopicJudgment[];
+  /** Candidates skipped before the model call because they were already judged. */
+  duplicatesSkipped: number;
+  /** Candidates actually sent to the model. */
+  sentToJudgment: number;
+};
+
 /**
  * Judge candidates for one agent, with that agent's recently published topics
  * loaded from topic_log and passed in.
@@ -15,16 +31,60 @@ export const RECENT_TOPICS_LIMIT = 10;
  * This is the only place judgment should be invoked from. Calling judgeTopic
  * directly skips the recent-topics lookup, which silently disables the novelty
  * standard — the model has no other way to know what has already been covered.
+ *
+ * Candidates already present in topic_log never reach the model. Discovery
+ * resurfaces the same stories every cycle, and judgment reliably rejected them
+ * again for novelty — paying full token cost to re-derive a settled answer,
+ * and crowding out candidates that had never been seen. They are logged
+ * straight to topic_log as rejected instead.
  */
 export async function judgeTopicsForAgent(
   agentId: string,
   candidates: DiscoveredTopic[]
-): Promise<TopicJudgment[]> {
-  if (candidates.length === 0) return [];
+): Promise<JudgeCycleResult> {
+  if (candidates.length === 0) {
+    return { judgments: [], duplicatesSkipped: 0, sentToJudgment: 0 };
+  }
+
+  const alreadyJudged = new Set(
+    (await getJudgedTopics(agentId)).map(titleMatchKey)
+  );
+
+  const fresh: DiscoveredTopic[] = [];
+  const duplicates: DiscoveredTopic[] = [];
+  for (const candidate of candidates) {
+    if (alreadyJudged.has(titleMatchKey(candidate.title))) {
+      duplicates.push(candidate);
+    } else {
+      fresh.push(candidate);
+    }
+  }
+
+  for (const duplicate of duplicates) {
+    await logTopicDecision({
+      agent_id: agentId,
+      topic: duplicate.title,
+      decision: 'rejected',
+      reason: DUPLICATE_REASON,
+    });
+  }
+
+  // Every candidate was a repeat: skip the model call altogether.
+  if (fresh.length === 0) {
+    return {
+      judgments: [],
+      duplicatesSkipped: duplicates.length,
+      sentToJudgment: 0,
+    };
+  }
 
   const recentTopics = await getRecentPostTopics(agentId, RECENT_TOPICS_LIMIT);
 
-  return judgeTopic(candidates, recentTopics);
+  return {
+    judgments: await judgeTopic(fresh, recentTopics),
+    duplicatesSkipped: duplicates.length,
+    sentToJudgment: fresh.length,
+  };
 }
 
 /**
