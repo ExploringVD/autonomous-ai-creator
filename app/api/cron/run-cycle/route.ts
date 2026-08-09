@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { v4 as uuidv4 } from 'uuid';
 import { getAllAgents, insertPost } from '@/lib/db';
 import { discoverTopics, type DiscoveredTopic } from '@/lib/discovery';
+import { JudgmentError } from '@/lib/judgment';
 import {
   judgeTopicsForAgent,
   logJudgmentRejections,
@@ -20,6 +21,31 @@ export const maxDuration = 300;
  * than queueing up for a burst.
  */
 const MAX_POSTS_PER_CYCLE = 2;
+
+/**
+ * Agents the cron is allowed to spend judgment budget on, from CRON_AGENT_IDS
+ * (comma-separated uuids).
+ *
+ * Without this the cycle judged every row in the agents table, and since
+ * POST /api/agent/init creates a permanent agent, each click of the dashboard's
+ * API tester permanently added one more agent's worth of Groq spend per cycle.
+ * Six agents put the daily judgment cost at ~167k tokens against a 100k/day
+ * limit, which exhausted the quota and made judgment silently return nothing.
+ *
+ * Unset means no allowlist and every agent runs — the previous behaviour, kept
+ * so a local or fresh deployment still works without extra configuration.
+ */
+function allowedAgentIds(): Set<string> | null {
+  const raw = process.env.CRON_AGENT_IDS?.trim();
+  if (!raw) return null;
+
+  const ids = raw
+    .split(',')
+    .map((id) => id.trim().toLowerCase())
+    .filter(Boolean);
+
+  return ids.length > 0 ? new Set(ids) : null;
+}
 
 type AgentSummary = {
   agentId: string;
@@ -53,7 +79,12 @@ export async function POST(request: Request) {
   }
 
   try {
-    const agents = await getAllAgents();
+    const allowlist = allowedAgentIds();
+    const allAgents = await getAllAgents();
+    const agents = allowlist
+      ? allAgents.filter((agent) => allowlist.has(agent.id.toLowerCase()))
+      : allAgents;
+
     const summaries: AgentSummary[] = [];
 
     for (const agent of agents) {
@@ -144,8 +175,15 @@ export async function POST(request: Request) {
           );
         }
       } catch (error) {
+        // Label judgment failures so an exhausted quota is legible in the
+        // summary itself. This used to surface as topicsJudged: 0 with an
+        // empty errors array, which was indistinguishable from a quiet cycle.
         summary.errors.push(
-          error instanceof Error ? error.message : String(error)
+          error instanceof JudgmentError
+            ? `judgment failed (${error.cause}): ${error.message}`
+            : error instanceof Error
+              ? error.message
+              : String(error)
         );
       }
 
@@ -154,6 +192,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       agentsProcessed: summaries.length,
+      agentsSkippedByAllowlist: allAgents.length - agents.length,
       topicsJudged: summaries.reduce((n, s) => n + s.topicsJudged, 0),
       postsPublished: summaries.reduce((n, s) => n + s.published, 0),
       postsFailed: summaries.reduce((n, s) => n + s.failed, 0),

@@ -37,3 +37,7 @@ next-env.d.ts
 
 # local Claude Code state
 .claude/
+
+# added by `vercel link`; the example file carries no secrets and stays tracked
+.env*
+!.env.example

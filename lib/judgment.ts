@@ -164,10 +164,33 @@ function buildPrompt(
 }
 
 /**
+ * A judgment run that produced no judgments because the call itself failed —
+ * as opposed to a model that legitimately judged nothing.
+ *
+ * These two used to be indistinguishable: both surfaced as an empty array, so
+ * a quota exhaustion looked identical to a quiet cycle and only showed up in
+ * server logs. Callers now get a throw they can report.
+ */
+export class JudgmentError extends Error {
+  readonly cause: 'no_api_key' | 'api_request_failed' | 'unparseable_response';
+
+  constructor(
+    cause: 'no_api_key' | 'api_request_failed' | 'unparseable_response',
+    message: string
+  ) {
+    super(message);
+    this.name = 'JudgmentError';
+    this.cause = cause;
+  }
+}
+
+/**
  * Judge each candidate against Rhea's six editorial standards.
  *
- * Never throws. On API or parse failure returns []; individual malformed
- * entries are logged and skipped so one bad object doesn't lose the batch.
+ * Throws JudgmentError when the call or the response could not be used at all.
+ * An empty array is therefore a real result — the model judged nothing — and
+ * never a swallowed failure. Individual malformed entries are still logged and
+ * skipped so one bad object doesn't lose the batch.
  */
 export async function judgeTopic(
   candidates: DiscoveredTopic[],
@@ -178,7 +201,7 @@ export async function judgeTopic(
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) {
     console.error('judgeTopic: GROQ_API_KEY is not set');
-    return [];
+    throw new JudgmentError('no_api_key', 'GROQ_API_KEY is not set');
   }
 
   let text: string;
@@ -206,10 +229,37 @@ export async function judgeTopic(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error('judgeTopic: Groq request failed:', message);
-    return [];
+    // Carries the provider's own text, so a 429 arrives with its quota
+    // detail ("tokens per day (TPD): Limit 100000, Used ...") intact.
+    throw new JudgmentError(
+      'api_request_failed',
+      `Groq request failed: ${message}`
+    );
   }
 
-  return parseJudgments(text);
+  const judgments = parseJudgments(text);
+
+  // parseJudgments returns [] both when the model legitimately judged nothing
+  // and when its output was unusable. Only the second is a failure, so check
+  // which one this was rather than reporting a silent zero either way.
+  if (judgments.length === 0 && !isEmptyJudgmentSet(text)) {
+    throw new JudgmentError(
+      'unparseable_response',
+      `could not parse any judgments from model output: ${text.slice(0, 160)}`
+    );
+  }
+
+  return judgments;
+}
+
+/** True when `raw` really is a well-formed, empty set of judgments. */
+function isEmptyJudgmentSet(raw: string): boolean {
+  try {
+    const unwrapped = unwrapJudgments(JSON.parse(stripFences(raw)));
+    return Array.isArray(unwrapped) && unwrapped.length === 0;
+  } catch {
+    return false;
+  }
 }
 
 /**
