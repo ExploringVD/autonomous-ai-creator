@@ -341,11 +341,11 @@ export default function FeedPage() {
           // entirely inside one ellipse's hot centre and the whole screen goes
           // purple. Viewport units keep the same composition at every width.
           backgroundImage: [
-            'radial-gradient(ellipse 76vw 84vh at 10% -6%, rgba(99, 102, 241, 0.22), transparent 64%)',
-            'radial-gradient(ellipse 62vw 69vh at 88% 4%, rgba(124, 58, 237, 0.16), transparent 66%)',
-            'radial-gradient(ellipse 57vw 76vh at 62% 46%, rgba(56, 89, 189, 0.13), transparent 68%)',
-            'radial-gradient(ellipse 69vw 69vh at 30% 96%, rgba(76, 63, 176, 0.15), transparent 70%)',
-            'radial-gradient(ellipse 49vw 62vh at 0% 40%, rgba(139, 92, 246, 0.10), transparent 72%)',
+            'radial-gradient(ellipse 76vw 84vh at 10% -6%, rgba(255, 244, 230, 0.05), transparent 64%)',
+            'radial-gradient(ellipse 62vw 69vh at 88% 4%, rgba(255, 244, 230, 0.05), transparent 66%)',
+            'radial-gradient(ellipse 57vw 76vh at 62% 46%, rgba(255, 244, 230, 0.05), transparent 68%)',
+            'radial-gradient(ellipse 69vw 69vh at 30% 96%, rgba(255, 244, 230, 0.05), transparent 70%)',
+            'radial-gradient(ellipse 49vw 62vh at 0% 40%, rgba(255, 244, 230, 0.05), transparent 72%)',
           ].join(', '),
         }}
       />
@@ -360,7 +360,7 @@ export default function FeedPage() {
         className="pointer-events-none fixed left-[38%] top-[18%] h-[26rem] w-[26rem] -translate-x-1/2 rounded-full opacity-[0.5] blur-[90px] sm:h-[46rem] sm:w-[46rem] sm:blur-[130px]"
         style={{
           background:
-            'radial-gradient(circle, rgba(67, 56, 202, 0.30) 0%, rgba(88, 28, 135, 0.16) 45%, transparent 72%)',
+            'radial-gradient(circle, rgba(255, 244, 230, 0.05) 0%, rgba(255, 244, 230, 0.03) 45%, transparent 72%)',
         }}
       />
 
@@ -375,13 +375,15 @@ export default function FeedPage() {
         aria-hidden
         className="pointer-events-none fixed inset-0"
         style={{
+          // Warm near-white throughout: the old slate/blue-200 tints gave the
+          // field a cool cast that read as a hue against the cyan accent.
           backgroundImage: [
-            'radial-gradient(circle, rgba(241, 245, 249, 0.55) 1.2px, transparent 1.2px)',
-            'radial-gradient(circle, rgba(226, 232, 240, 0.38) 1.5px, transparent 1.5px)',
-            'radial-gradient(circle, rgba(203, 213, 225, 0.30) 1px, transparent 1px)',
-            'radial-gradient(circle, rgba(226, 232, 240, 0.22) 0.8px, transparent 0.8px)',
-            'radial-gradient(circle, rgba(191, 219, 254, 0.26) 1.1px, transparent 1.1px)',
-            'radial-gradient(circle, rgba(148, 163, 184, 0.16) 0.7px, transparent 0.7px)',
+            'radial-gradient(circle, rgba(255, 250, 242, 0.55) 1.2px, transparent 1.2px)',
+            'radial-gradient(circle, rgba(255, 248, 238, 0.38) 1.5px, transparent 1.5px)',
+            'radial-gradient(circle, rgba(250, 244, 235, 0.30) 1px, transparent 1px)',
+            'radial-gradient(circle, rgba(255, 248, 238, 0.22) 0.8px, transparent 0.8px)',
+            'radial-gradient(circle, rgba(248, 242, 233, 0.26) 1.1px, transparent 1.1px)',
+            'radial-gradient(circle, rgba(226, 219, 209, 0.16) 0.7px, transparent 0.7px)',
           ].join(', '),
           backgroundSize:
             '97px 109px, 163px 139px, 71px 83px, 43px 47px, 191px 173px, 31px 37px',
@@ -395,13 +397,13 @@ export default function FeedPage() {
         {TWINKLING_STARS.map((star, i) => (
           <span
             key={i}
-            className="absolute rounded-full bg-slate-200 motion-safe:animate-twinkle"
+            className="absolute rounded-full bg-[#fff8ee] motion-safe:animate-twinkle"
             style={{
               top: star.top,
               left: star.left,
               height: `${star.size}px`,
               width: `${star.size}px`,
-              boxShadow: `0 0 ${star.size * 2}px rgba(226, 232, 240, 0.5)`,
+              boxShadow: `0 0 ${star.size * 2}px rgba(255, 244, 230, 0.5)`,
               animationDuration: star.duration,
               animationDelay: star.delay,
               // Fallback for prefers-reduced-motion, where no animation runs;
@@ -426,7 +428,7 @@ export default function FeedPage() {
                 className="pointer-events-none absolute inset-x-0 -inset-y-8"
                 style={{
                   backgroundImage:
-                    'radial-gradient(ellipse 240px 90px at 22% 50%, rgba(129, 140, 248, 0.13), transparent 70%)',
+                    'radial-gradient(ellipse 240px 90px at 22% 50%, rgba(255, 244, 230, 0.05), transparent 70%)',
                 }}
               />
               <div className="relative flex items-center gap-2.5">

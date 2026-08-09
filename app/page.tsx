@@ -22,9 +22,9 @@ export default function Home() {
         className="pointer-events-none absolute inset-0"
         style={{
           backgroundImage: [
-            'radial-gradient(ellipse 76vw 84vh at 10% -6%, rgba(99, 102, 241, 0.22), transparent 64%)',
-            'radial-gradient(ellipse 62vw 69vh at 88% 4%, rgba(124, 58, 237, 0.16), transparent 66%)',
-            'radial-gradient(ellipse 69vw 69vh at 30% 96%, rgba(76, 63, 176, 0.15), transparent 70%)',
+            'radial-gradient(ellipse 76vw 84vh at 10% -6%, rgba(255, 244, 230, 0.05), transparent 64%)',
+            'radial-gradient(ellipse 62vw 69vh at 88% 4%, rgba(255, 244, 230, 0.05), transparent 66%)',
+            'radial-gradient(ellipse 69vw 69vh at 30% 96%, rgba(255, 244, 230, 0.05), transparent 70%)',
           ].join(', '),
         }}
       />
